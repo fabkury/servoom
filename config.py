@@ -2,6 +2,7 @@
 Configuration constants for the Divoom API client.
 """
 
+from credentials import CONFIG_EMAIL, CONFIG_MD5_PASSWORD
 
 class Config:
     """Configuration constants for the Divoom API client."""
@@ -43,9 +44,9 @@ class Config:
     # "GroupName": "Feedback & Suggestion",
     # "ChannelId": "busChannel",
     
-    # Test credentials
-    EMAIL = 'email@server.com'
-    MD5_PASSWORD = 'INSERT-THE-MD5-HASH-OF-THE-PASSWORD-HERE-NOT-THE-PASSWORD-ITSELF'
+    # Credentials
+    EMAIL = CONFIG_EMAIL
+    MD5_PASSWORD = CONFIG_MD5_PASSWORD
     
     # Query parameters
     BATCH_SIZE = 50
@@ -68,7 +69,7 @@ class Config:
     }
     
     # File size filters (bitmap flags)
-    FILE_SIZE_FILTER = 0b1 | 0b10 | 0b100 | 0b1000 | 0b10000 | 0b100000
+    FILE_SIZE_FILTER = 0b10000 # 0b1 | 0b10 | 0b100 | 0b1000 | 0b10000 | 0b100000
     
     # Field mappings for output
     FIELD_MAPPINGS = {
