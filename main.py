@@ -8,6 +8,7 @@ Supported DAT File Formats:
 - ✓ Format 18 (0x12): 32x32 or 64x64 animation
 - ✓ Format 26 (0x1A): 64x64 or 128x128 animation
 - ✓ Format 31 (0x1F): 128x128 embedded JPEG animation
+- x Format 41: TODO
 - ✓ Format 42 (0x2A): 256x256 zstd-compressed raw RGB frames
 - ✓ Format 43 (0x2B): 256x256 embedded GIF/WEBP container
 """
@@ -1192,6 +1193,7 @@ def decode_reference_animations(output_dir: str = None, threshold: float = 20.0)
         print(f"\n[RESULT] Passed {passed}/{total} ({passed/total*100:.1f}%) within threshold {threshold}")
     else:
         print("\n[INFO] No comparisons performed")
+
 
 def test_decode_format_31():
     """

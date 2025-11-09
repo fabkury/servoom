@@ -1,2 +1,4 @@
 downloads/
 out/
+credentials.py
+__pycache__
