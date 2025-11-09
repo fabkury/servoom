@@ -18,12 +18,13 @@ import re
 from datetime import datetime
 from typing import Dict, List, Union
 
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from client import DivoomClient, convert_epoch_to_local
-from config import Config
-from apixoo.pixel_bean_decoder import PixelBeanDecoder
+from .client import DivoomClient, convert_epoch_to_local
+from .config import Config
+from .pixel_bean_decoder import PixelBeanDecoder
 
 
 # ============================================================================
@@ -1166,7 +1167,7 @@ def decode_reference_animations(output_dir: str = None, threshold: float = 20.0)
             out_webp = os.path.join(output_dir, f"ref_{base}.webp")
             pb.save_to_webp(out_webp)
 
-            # Compare to GIF if present
+            # Compare to GIF/WebP if present
             if gif_path and os.path.exists(gif_path):
                 ref_frames = _compose_gif_frames(gif_path, (pb.width, pb.height))
                 num = min(len(ref_frames), pb.total_frames)
@@ -1193,6 +1194,177 @@ def decode_reference_animations(output_dir: str = None, threshold: float = 20.0)
         print(f"\n[RESULT] Passed {passed}/{total} ({passed/total*100:.1f}%) within threshold {threshold}")
     else:
         print("\n[INFO] No comparisons performed")
+
+
+def decode_and_compare_format_26():
+    """
+    Decode DAT files from reference-animations/26/DAT and compare them
+    frame-by-frame, pixel-by-pixel with corresponding WebP files in
+    reference-animations/26/WEBP.
+    
+    Returns:
+        Dictionary mapping filenames to comparison results
+    """
+    import glob
+    from PIL import Image, ImageSequence  # type: ignore
+    
+    print("=" * 70)
+    print("Decoding and Comparing Format 26 Reference Animations")
+    print("=" * 70)
+    
+    dat_dir = os.path.join('reference-animations', '26', 'DAT')
+    webp_dir = os.path.join('reference-animations', '26', 'WEBP')
+    
+    # Check directories exist
+    if not os.path.exists(dat_dir):
+        print(f"\n[ERROR] DAT directory not found: {dat_dir}")
+        return {}
+    
+    if not os.path.exists(webp_dir):
+        print(f"\n[ERROR] WEBP directory not found: {webp_dir}")
+        return {}
+    
+    # Get all DAT files
+    dat_paths = sorted(glob.glob(os.path.join(dat_dir, '*.dat')))
+    if not dat_paths:
+        print(f"\n[INFO] No DAT files found in {dat_dir}")
+        return {}
+    
+    print(f"\nFound {len(dat_paths)} DAT files to process")
+    print("-" * 70)
+    
+    results = {}
+    
+    for dat_path in dat_paths:
+        # Get base filename without extension
+        base_name = os.path.splitext(os.path.basename(dat_path))[0]
+        webp_path = os.path.join(webp_dir, f"{base_name}.webp")
+        
+        print(f"\nProcessing: {base_name}")
+        
+        # Check if corresponding WebP exists
+        if not os.path.exists(webp_path):
+            print(f"  [SKIP] No corresponding WebP file found: {webp_path}")
+            results[base_name] = {"status": "NO_REFERENCE"}
+            continue
+        
+        try:
+            # Decode DAT file
+            pixel_bean = PixelBeanDecoder.decode_file(dat_path)
+            
+            if pixel_bean is None:
+                print(f"  [SKIP] Failed to decode DAT file")
+                results[base_name] = {"status": "DECODE_FAILED"}
+                continue
+            
+            decoded_frames = pixel_bean.total_frames
+            decoded_width = pixel_bean.width
+            decoded_height = pixel_bean.height
+            
+            # Read WebP frames
+            ref_frames = []
+            with Image.open(webp_path) as im:
+                # Ensure dimensions match
+                if im.size != (decoded_width, decoded_height):
+                    print(f"  [WARN] Dimension mismatch: DAT={decoded_width}x{decoded_height}, WebP={im.size[0]}x{im.size[1]}")
+                    # Resize reference frames to match decoded dimensions
+                    for frame in ImageSequence.Iterator(im):
+                        rgb_frame = frame.convert('RGB')
+                        if rgb_frame.size != (decoded_width, decoded_height):
+                            rgb_frame = rgb_frame.resize((decoded_width, decoded_height), Image.NEAREST)
+                        ref_frames.append(rgb_frame)
+                else:
+                    for frame in ImageSequence.Iterator(im):
+                        ref_frames.append(frame.convert('RGB'))
+            
+            ref_frames_count = len(ref_frames)
+            
+            # Compare frame counts
+            if decoded_frames != ref_frames_count:
+                print(f"  [NO MATCH] Frame count mismatch: DAT={decoded_frames}, WebP={ref_frames_count}")
+                results[base_name] = {
+                    "status": "NO_MATCH",
+                    "decoded_frames": decoded_frames,
+                    "reference_frames": ref_frames_count
+                }
+                continue
+            
+            # Frame counts match - proceed with pixel-by-pixel comparison
+            print(f"  Frame count: {decoded_frames} (match)")
+            print(f"  Dimensions: {decoded_width}x{decoded_height}")
+            
+            total_pixels = 0
+            matching_pixels = 0
+            
+            for frame_idx in range(decoded_frames):
+                # Get decoded frame (1-indexed)
+                decoded_img = pixel_bean.get_frame_image(frame_idx + 1)
+                decoded_img = decoded_img.convert('RGB')
+                
+                # Get reference frame
+                ref_img = ref_frames[frame_idx]
+                
+                # Ensure same size
+                if decoded_img.size != ref_img.size:
+                    ref_img = ref_img.resize(decoded_img.size, Image.NEAREST)
+                
+                # Convert to numpy arrays for pixel comparison
+                decoded_array = np.array(decoded_img)
+                ref_array = np.array(ref_img)
+                
+                # Count matching pixels (exact RGB match)
+                frame_pixels = decoded_array.shape[0] * decoded_array.shape[1]
+                total_pixels += frame_pixels
+                
+                # Compare pixel-by-pixel (all 3 RGB channels must match exactly)
+                matches = np.all(decoded_array == ref_array, axis=2)
+                frame_matching_pixels = np.sum(matches)
+                matching_pixels += frame_matching_pixels
+            
+            # Calculate match percentage
+            if total_pixels > 0:
+                match_percentage = (matching_pixels / total_pixels) * 100.0
+                print(f"  MATCH = {match_percentage:.2f}% ({matching_pixels}/{total_pixels} pixels)")
+                results[base_name] = {
+                    "status": "MATCH",
+                    "match_percentage": match_percentage,
+                    "matching_pixels": int(matching_pixels),
+                    "total_pixels": int(total_pixels),
+                    "frames": decoded_frames
+                }
+            else:
+                print(f"  [ERROR] No pixels to compare")
+                results[base_name] = {"status": "ERROR", "message": "No pixels to compare"}
+                
+        except Exception as e:
+            print(f"  [ERROR] Exception: {e}")
+            import traceback
+            traceback.print_exc()
+            results[base_name] = {"status": "ERROR", "message": str(e)}
+    
+    # Print summary
+    print("\n" + "=" * 70)
+    print("Summary:")
+    print("=" * 70)
+    
+    no_match_count = sum(1 for r in results.values() if r.get("status") == "NO_MATCH")
+    match_count = sum(1 for r in results.values() if r.get("status") == "MATCH")
+    other_count = len(results) - no_match_count - match_count
+    
+    print(f"  Total files processed: {len(results)}")
+    print(f"  NO MATCH (frame count): {no_match_count}")
+    print(f"  MATCH (pixel comparison): {match_count}")
+    print(f"  Other (skipped/errors): {other_count}")
+    
+    if match_count > 0:
+        print("\n  Match percentages:")
+        for name, result in sorted(results.items()):
+            if result.get("status") == "MATCH":
+                print(f"    {name}: {result['match_percentage']:.2f}%")
+    
+    print("=" * 70)
+    
+    return results
 
 
 def test_decode_format_31():
@@ -1334,4 +1506,7 @@ if __name__ == "__main__":
     
     # Test GetCategoryFileListV2 endpoint
     # test_fetch_category_files(18)
-    test_download_and_decode_gallery_files(18)
+    # test_download_and_decode_gallery_files(18)
+
+    # Test decode and compare format 26 reference animations
+    decode_and_compare_format_26()

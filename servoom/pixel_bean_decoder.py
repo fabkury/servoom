@@ -490,7 +490,15 @@ class _Decoder0x1AFrame:
             bits += 1
         return bits
 
-    def __init__(self, frame_data: bytes, width: int, height: int, debug: bool = False, frame_index: int = 0, previous_palette: List[Tuple[int, int, int]] = None):
+    def __init__(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        debug: bool = False,
+        frame_index: int = 0,
+        previous_palette: List[Tuple[int, int, int]] = None,
+    ):
         # Parse per-frame header
         if len(frame_data) < 8:
             raise ValueError("Frame data too short")
@@ -527,7 +535,8 @@ class _Decoder0x1AFrame:
                 self.palette.append((r, g, b))
             pixel_data_offset = palette_start + palette_size_u16 * 3
         self.pixel = frame_data[pixel_data_offset:]
-
+        self.pixel_data_offset = pixel_data_offset
+        self._out_of_data_warning = False
         # Determine bits-per-pixel from palette size (ceil(log2(n)))
         self.base_bpp = self._bits_per_pixel_from_count(len(self.palette))
 
@@ -535,9 +544,10 @@ class _Decoder0x1AFrame:
         self.width = width
         self.height = height
         self.out: List[Tuple[int, int, int]] = [(0, 0, 0)] * (self.width * self.height)
-        # Use LSB bit order (verified from working decoder)
+        # Bitstream is little-endian within each byte
         self._bitorder = 'lsb'
         self._debug = debug
+        self._frame_index = frame_index
 
     def _palette_at(self, idx: int) -> Tuple[int, int, int]:
         if not (0 <= idx < len(self.palette)):
@@ -555,6 +565,9 @@ class _Decoder0x1AFrame:
                 v = 0
                 for i in range(bits):
                     if pos >= len(data):
+                        if self._debug and not self._out_of_data_warning:
+                            print(f"        [warn] Ran out of pixel data at pos={pos} (need {num_values} values, bits={bits})")
+                            self._out_of_data_warning = True
                         b = 0
                     else:
                         b = (data[pos] >> bit) & 1
@@ -578,6 +591,9 @@ class _Decoder0x1AFrame:
                 v = 0
                 while remaining > 0:
                     if pos >= len(data):
+                        if self._debug and not self._out_of_data_warning:
+                            print(f"        [warn] Ran out of pixel data at pos={pos} (need {num_values} values, bits={bits})")
+                            self._out_of_data_warning = True
                         take = remaining
                         chunk = 0
                     else:
@@ -603,10 +619,15 @@ class _Decoder0x1AFrame:
         if offset + 1 >= len(self.pixel):
             raise IndexError(f"fix_64 header OOB at {offset} len={len(self.pixel)}")
         ctrl = self.pixel[offset]
-        N = self.pixel[offset + 1] or 0x100
-        ptr = offset + 2
+        if ctrl == 0:
+            ptr = offset + 1
+        else:
+            if offset + 1 >= len(self.pixel):
+                raise IndexError(f"fix_64 header OOB at {offset+1} len={len(self.pixel)}")
+            N = self.pixel[offset + 1] or 0x100
+            ptr = offset + 2
         if self._debug:
-            print(f"  [64] off={offset} ctrl={ctrl} N={N} ptr={ptr} remain={len(self.pixel)-ptr}")
+            print(f"  [64] off={offset} ctrl={ctrl} ptr={ptr} remain={len(self.pixel)-ptr}")
         if ctrl == 2:
             mask_bytes = (N + 7) // 8
             if ptr + mask_bytes > len(self.pixel):
@@ -629,11 +650,11 @@ class _Decoder0x1AFrame:
                         y = y0 + br * 8 + row
                         base = y * w + (x0 + bc * 8)
                         for col in range(8):
-                            idx = values[it]; it += 1
+                            idx = values[it]
+                            it += 1
                             if not (0 <= idx < len(selected)):
                                 idx = 0
-                            pal_index = selected[idx]
-                            self.out[base + col] = self._palette_at(pal_index)
+                            self.out[base + col] = self._palette_at(selected[idx])
             return ptr2 - offset
         elif ctrl == 0:
             bpp = self.base_bpp
@@ -648,7 +669,8 @@ class _Decoder0x1AFrame:
                         y = y0 + br * 8 + row
                         base = y * w + (x0 + bc * 8)
                         for col in range(8):
-                            idx = values[it]; it += 1
+                            idx = values[it]
+                            it += 1
                             pal_index = idx if 0 <= idx < len(self.palette) else 0
                             self.out[base + col] = self._palette_at(pal_index)
             return ptr2 - offset
@@ -666,7 +688,7 @@ class _Decoder0x1AFrame:
             consumed += self._decode_fix_32(ptr + consumed, xq * 2 + 1, yq * 2 + 0, mapping)
             consumed += self._decode_fix_32(ptr + consumed, xq * 2 + 0, yq * 2 + 1, mapping)
             consumed += self._decode_fix_32(ptr + consumed, xq * 2 + 1, yq * 2 + 1, mapping)
-            return (ptr + consumed) - offset
+            return 2 + mask_bytes + consumed
 
     def _decode_fix_32(self, offset: int, xq: int, yq: int, parent_map: List[int]) -> int:
         x0 = xq * 32
@@ -674,10 +696,15 @@ class _Decoder0x1AFrame:
         if offset + 1 >= len(self.pixel):
             raise IndexError(f"fix_32 header OOB at {offset} len={len(self.pixel)}")
         ctrl = self.pixel[offset]
-        N = self.pixel[offset + 1] or 0x100
-        ptr = offset + 2
+        if ctrl == 0:
+            ptr = offset + 1
+        else:
+            if offset + 1 >= len(self.pixel):
+                raise IndexError(f"fix_32 header OOB at {offset+1} len={len(self.pixel)}")
+            N = self.pixel[offset + 1] or 0x100
+            ptr = offset + 2
         if self._debug:
-            print(f"    [32] off={offset} ctrl={ctrl} N={N} ptr={ptr} remain={len(self.pixel)-ptr}")
+            print(f"    [32] off={offset} ctrl={ctrl} ptr={ptr} remain={len(self.pixel)-ptr}")
         if ctrl == 2:
             mask_bytes = (N + 7) // 8
             if ptr + mask_bytes > len(self.pixel):
@@ -702,14 +729,15 @@ class _Decoder0x1AFrame:
                         y = y0 + br * 8 + row
                         base = y * w + (x0 + bc * 8)
                         for col in range(8):
-                            idx = values[it]; it += 1
+                            idx = values[it]
+                            it += 1
                             pal_index = selected[idx] if 0 <= idx < len(selected) else 0
                             self.out[base + col] = self._palette_at(pal_index)
             return ptr2 - offset
         elif ctrl == 0:
             bpp = self._bits_per_pixel_from_count(len(parent_map) or 1)
             if self._debug:
-                print(f"    [32] ctrl=0 bpp={bpp} read_from={ptr}")
+                print(f"    [32] ctrl=0 parent_len={len(parent_map)} bpp={bpp} read_from={ptr}")
             values, ptr2 = self._read_indices(self.pixel, ptr, 32 * 32, bpp)
             it = 0
             w = self.width
@@ -719,7 +747,8 @@ class _Decoder0x1AFrame:
                         y = y0 + br * 8 + row
                         base = y * w + (x0 + bc * 8)
                         for col in range(8):
-                            idx = values[it]; it += 1
+                            idx = values[it]
+                            it += 1
                             pal_index = parent_map[idx] if 0 <= idx < len(parent_map) else 0
                             self.out[base + col] = self._palette_at(pal_index)
             return ptr2 - offset
@@ -742,7 +771,7 @@ class _Decoder0x1AFrame:
             consumed += self._decode_fix_16(ptr + consumed, xq * 2 + 1, yq * 2 + 0, mapping)
             consumed += self._decode_fix_16(ptr + consumed, xq * 2 + 0, yq * 2 + 1, mapping)
             consumed += self._decode_fix_16(ptr + consumed, xq * 2 + 1, yq * 2 + 1, mapping)
-            return (ptr + consumed) - offset
+            return 2 + mask_bytes + consumed
 
     def _decode_fix_16(self, offset: int, xq: int, yq: int, parent_map: List[int]) -> int:
         x0 = xq * 16
@@ -750,10 +779,15 @@ class _Decoder0x1AFrame:
         if offset + 1 >= len(self.pixel):
             raise IndexError(f"fix_32 header OOB at {offset} len={len(self.pixel)}")
         ctrl = self.pixel[offset]
-        N = self.pixel[offset + 1] or 0x100
-        ptr = offset + 2
+        if ctrl == 0:
+            ptr = offset + 1
+        else:
+            if offset + 1 >= len(self.pixel):
+                raise IndexError(f"fix_16 header OOB at {offset+1} len={len(self.pixel)}")
+            N = self.pixel[offset + 1] or 0x100
+            ptr = offset + 2
         if self._debug:
-            print(f"      [16] off={offset} ctrl={ctrl} N={N} ptr={ptr} remain={len(self.pixel)-ptr}")
+            print(f"      [16] off={offset} ctrl={ctrl} ptr={ptr} remain={len(self.pixel)-ptr}")
         if ctrl == 2:
             mask_bytes = (N + 7) // 8
             if ptr + mask_bytes > len(self.pixel):
@@ -772,8 +806,6 @@ class _Decoder0x1AFrame:
             values, ptr2 = self._read_indices(self.pixel, ptr, 16 * 16, bpp)
             it = 0
             w = self.width
-            # C order baseline: TL, TR, BL, BR (row_block outer, band inner)
-            # C order: top-left 8×8, top-right 8×8, then bottom-left, bottom-right
             for row_block in range(2):  # top, bottom
                 for band in range(2):   # left, right
                     x_band = x0 + band * 8
@@ -781,14 +813,15 @@ class _Decoder0x1AFrame:
                         y = y0 + row_block * 8 + row
                         base = y * w + x_band
                         for col in range(8):
-                            idx = values[it]; it += 1
+                            idx = values[it]
+                            it += 1
                             pal_index = selected[idx] if 0 <= idx < len(selected) else 0
                             self.out[base + col] = self._palette_at(pal_index)
             return ptr2 - offset
         elif ctrl == 0:
             bpp = self._bits_per_pixel_from_count(len(parent_map) or 1)
             if self._debug:
-                print(f"      [16] ctrl=0 bpp={bpp} read_from={ptr}")
+                print(f"      [16] ctrl=0 parent_len={len(parent_map)} bpp={bpp} read_from={ptr}")
             values, ptr2 = self._read_indices(self.pixel, ptr, 16 * 16, bpp)
             it = 0
             w = self.width
@@ -799,7 +832,8 @@ class _Decoder0x1AFrame:
                         y = y0 + row_block * 8 + row
                         base = y * w + x_band
                         for col in range(8):
-                            idx = values[it]; it += 1
+                            idx = values[it]
+                            it += 1
                             pal_index = parent_map[idx] if 0 <= idx < len(parent_map) else 0
                             self.out[base + col] = self._palette_at(pal_index)
             return ptr2 - offset
@@ -822,7 +856,7 @@ class _Decoder0x1AFrame:
             consumed += self._decode_fix_8(ptr + consumed, xq * 2 + 1, yq * 2 + 0, mapping)
             consumed += self._decode_fix_8(ptr + consumed, xq * 2 + 0, yq * 2 + 1, mapping)
             consumed += self._decode_fix_8(ptr + consumed, xq * 2 + 1, yq * 2 + 1, mapping)
-            return (ptr + consumed) - offset
+            return 2 + mask_bytes + consumed
 
     def _decode_fix_8(self, offset: int, xq: int, yq: int, parent_map: List[int]) -> int:
         x0 = xq * 8
@@ -854,7 +888,8 @@ class _Decoder0x1AFrame:
             for row in range(8):
                 base = (y0 + row) * w + x0
                 for col in range(8):
-                    idx = values[it]; it += 1
+                    idx = values[it]
+                    it += 1
                     pal_index = selected[idx] if 0 <= idx < len(selected) else 0
                     self.out[base + col] = self._palette_at(pal_index)
             return ptr2 - offset
@@ -869,7 +904,8 @@ class _Decoder0x1AFrame:
             for row in range(8):
                 base = (y0 + row) * w + x0
                 for col in range(8):
-                    idx = values[it]; it += 1
+                    idx = values[it]
+                    it += 1
                     pal_index = parent_map[idx] if 0 <= idx < len(parent_map) else 0
                     self.out[base + col] = self._palette_at(pal_index)
             return ptr2 - offset
@@ -894,6 +930,9 @@ class _Decoder0x1AFrame:
         
         img = Image.new('RGB', (self.width, self.height))
         img.putdata(self.out)
+        if self._debug:
+            total_payload = len(self.pixel) + self.pixel_data_offset
+            print(f"  [frame] pixel-bytes consumed: {off} / {len(self.pixel)} | total payload used: {self.pixel_data_offset + off} / {total_payload}")
         return img, off
 
 
