@@ -15,16 +15,29 @@ Supported DAT File Formats:
 
 import os
 import re
+import sys
 from datetime import datetime
 from typing import Dict, List, Union
+
+# Add parent directory to path to allow running as script
+if __package__ is None:
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from .client import DivoomClient, convert_epoch_to_local
-from .config import Config
-from .pixel_bean_decoder import PixelBeanDecoder
+try:
+    from .client import DivoomClient, convert_epoch_to_local
+    from .config import Config
+    from .pixel_bean_decoder import PixelBeanDecoder
+except ImportError:
+    # Allow running as a script directly
+    from servoom.client import DivoomClient, convert_epoch_to_local
+    from servoom.config import Config
+    from servoom.pixel_bean_decoder import PixelBeanDecoder
 
 
 # ============================================================================
@@ -680,9 +693,12 @@ def test_download_and_decode_gallery_files(category_id: int, output_dir: str = N
     Returns:
         Tuple of (list of downloaded .dat paths, list of decoded .webp paths)
     """
-    from client import sanitize_filename
+    try:
+        from .client import sanitize_filename
+    except ImportError:
+        from servoom.client import sanitize_filename
     import requests
-    from config import Config
+    # Config already imported at top
     
     print("=" * 70)
     print("Testing Download and Decode Gallery Files from Category")
@@ -714,7 +730,7 @@ def test_download_and_decode_gallery_files(category_id: int, output_dir: str = N
     
     # Step 2: Download the files
     # Use a separate directory for downloaded .dat files
-    dat_output_dir = os.path.join('downloads', f'category_{category_id}')
+    dat_output_dir = os.path.join('downloads', f'category-{category_id}', datetime.now().strftime('%Y-%m-%d'))
     os.makedirs(dat_output_dir, exist_ok=True)
     
     print("\n" + "-" * 70)
@@ -773,6 +789,8 @@ def test_download_and_decode_gallery_files(category_id: int, output_dir: str = N
         decode_output_dir = Config.OUTPUT_DIR
     else:
         decode_output_dir = output_dir
+
+    decode_output_dir += f'/category-{category_id}/' + datetime.now().strftime('%Y-%m-%d')
     
     os.makedirs(decode_output_dir, exist_ok=True)
     
@@ -973,7 +991,10 @@ def test_download_and_decode_someone_arts(target_user_id: int, output_dir: str =
     Returns:
         Tuple of (list of downloaded .dat paths, list of decoded .webp paths)
     """
-    from client import sanitize_filename
+    try:
+        from .client import sanitize_filename
+    except ImportError:
+        from servoom.client import sanitize_filename
     
     print("=" * 70)
     print("Testing Download and Decode Someone's Arts")
@@ -988,7 +1009,7 @@ def test_download_and_decode_someone_arts(target_user_id: int, output_dir: str =
     
     # Step 2: Decode the downloaded files with proper naming
     if output_dir is None:
-        output_dir = Config.OUTPUT_DIR
+        output_dir = Config.OUTPUT_DIR + f'/{target_user_id}' + '/' + datetime.now().strftime('%Y-%m-%d')
     os.makedirs(output_dir, exist_ok=True)
     
     print("\n" + "-" * 70)
@@ -1488,6 +1509,7 @@ if __name__ == "__main__":
     
     # # Test format 31 with full batch decode
     # test_download_and_decode_someone_arts(401670591)  # monsters's user ID (has format 31 files)
+    # test_download_and_decode_someone_arts(403794905) # badguy's user ID
     # test_download_and_decode_someone_arts(400568695) # LeCDrom's user ID
     # test_download_and_decode_someone_arts(401553003) # fantabulicious's user ID
     
@@ -1506,7 +1528,7 @@ if __name__ == "__main__":
     
     # Test GetCategoryFileListV2 endpoint
     # test_fetch_category_files(18)
-    # test_download_and_decode_gallery_files(18)
+    test_download_and_decode_gallery_files(18)
 
     # Test decode and compare format 26 reference animations
-    decode_and_compare_format_26()
+    # decode_and_compare_format_26()

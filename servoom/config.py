@@ -57,7 +57,7 @@ class Config:
     
 
     DEBUG_MODE = True
-    DEBUG_LIMIT = 50
+    DEBUG_LIMIT = 1000
     
     # Output directory
     OUTPUT_DIR = 'out'
@@ -69,7 +69,7 @@ class Config:
     }
     
     # File size filters (bitmap flags)
-    FILE_SIZE_FILTER = 0b10000 # 0b1 | 0b10 | 0b100 | 0b1000 | 0b10000 | 0b100000
+    FILE_SIZE_FILTER = 0b1 | 0b10 | 0b100 | 0b1000 | 0b10000 | 0b100000
     
     # Field mappings for output
     FIELD_MAPPINGS = {
