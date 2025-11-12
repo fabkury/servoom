@@ -1152,7 +1152,7 @@ function App() {
 
   const renderPaginationControls = (className: string) => (
     <div className={className}>
-      <div>
+      <div className="results-info">
         <strong>{itemsLabelText}</strong>
         <div>
           {t.table.summary(currentPage + 1, totalPages, items.length, selectionCount)}
