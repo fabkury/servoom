@@ -3,11 +3,11 @@ import type { FormEvent } from 'react';
 import SparkMD5 from 'spark-md5';
 import JSZip from 'jszip';
 import './App.css';
-import flagUS from './assets/flags/us.svg';
-import flagES from './assets/flags/es.svg';
-import flagCN from './assets/flags/cn.svg';
-import flagJP from './assets/flags/jp.svg';
-import flagRU from './assets/flags/ru.svg';
+import flagEN from './assets/flags/en.png';
+import flagES from './assets/flags/es.png';
+import flagCN from './assets/flags/cn.png';
+import flagJP from './assets/flags/jp.png';
+import flagRU from './assets/flags/ru.png';
 import type { GalleryInfo, Session, UserSummary } from './lib/divoomApi';
 import {
   ApiError,
@@ -760,11 +760,11 @@ const translations: Record<Locale, Translation> = {
 };
 
 const localeOptions: Array<{ locale: Locale; icon: string; label: string }> = [
-  { locale: 'en', icon: flagUS, label: 'English' },
-  { locale: 'es', icon: flagES, label: 'Español' },
-  { locale: 'zh', icon: flagCN, label: '中文' },
-  { locale: 'ja', icon: flagJP, label: '日本語' },
-  { locale: 'ru', icon: flagRU, label: 'Русский' },
+  { locale: 'en', icon: flagEN, label: 'English' },
+  { locale: 'es', icon: flagES, label: 'Spanish' },
+  { locale: 'zh', icon: flagCN, label: 'Chinese' },
+  { locale: 'ja', icon: flagJP, label: 'Japanese' },
+  { locale: 'ru', icon: flagRU, label: 'Russian' },
 ];
 
 class CancelledError extends Error {
