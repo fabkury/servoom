@@ -6,19 +6,28 @@ const securityHeaders = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
 };
 
-export default defineConfig(({ mode }) => {
-  const base = mode === 'production' ? '/servoom/' : '/';
+function resolveBase(mode: string): string {
+  if (mode !== 'production') {
+    return '/';
+  }
 
-  return {
-    base,
-    plugins: [react()],
-    server: {
-      host: '0.0.0.0',
-      headers: securityHeaders,
-    },
-    preview: {
-      host: '0.0.0.0',
-      headers: securityHeaders,
-    },
-  };
-});
+  const target = process.env.DEPLOY_TARGET?.toLowerCase();
+  if (target === 'github') {
+    return '/servoom/';
+  }
+
+  return '/';
+}
+
+export default defineConfig(({ mode }) => ({
+  base: resolveBase(mode),
+  plugins: [react()],
+  server: {
+    host: '0.0.0.0',
+    headers: securityHeaders,
+  },
+  preview: {
+    host: '0.0.0.0',
+    headers: securityHeaders,
+  },
+}));
