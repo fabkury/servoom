@@ -142,7 +142,7 @@ interface Translation {
 const translations: Record<Locale, Translation> = {
   en: {
     header: {
-      title: 'servoom web',
+      title: 'servoom',
       tagline: 'Divoom Cloud data export tool',
       footer: '❤️ pixel art, ❤️ pixel artists.',
       languageLabel: 'Language',
@@ -264,7 +264,7 @@ const translations: Record<Locale, Translation> = {
   },
   es: {
     header: {
-      title: 'servoom web',
+      title: 'servoom',
       tagline: 'Herramienta de exportación de datos de Divoom Cloud',
       footer: '❤️ pixel art, ❤️ artistas de píxel.',
       languageLabel: 'Idioma',
@@ -389,7 +389,7 @@ const translations: Record<Locale, Translation> = {
   },
   zh: {
     header: {
-      title: 'servoom web',
+      title: 'servoom',
       tagline: 'Divoom Cloud 数据导出工具',
       footer: '❤️ 像素艺术，❤️ 像素艺术家。',
       languageLabel: '语言',
@@ -513,7 +513,7 @@ const translations: Record<Locale, Translation> = {
   },
   ja: {
     header: {
-      title: 'servoom web',
+      title: 'servoom',
       tagline: 'Divoom Cloud データエクスポートツール',
       footer: '❤️ ピクセルアート、❤️ ピクセルアーティスト。',
       languageLabel: '言語',
@@ -635,7 +635,7 @@ const translations: Record<Locale, Translation> = {
   },
   ru: {
     header: {
-      title: 'servoom web',
+      title: 'servoom',
       tagline: 'Инструмент экспорта данных Divoom Cloud',
       footer: '❤️ пиксель-арт, ❤️ художники пикселей.',
       languageLabel: 'Язык',

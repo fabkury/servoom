@@ -1,4 +1,4 @@
-# servoom webapp
+# servoom
 
 Browser-based Divoom toolkit that mirrors the Python CLI without any server-side component. It logs in to the official API, downloads gallery metadata, pulls `.dat` binaries, and decodes them client-side via Pyodide (the original Python decoder compiled to WebAssembly with bridging hooks for AES/LZO/Zstd).
 
