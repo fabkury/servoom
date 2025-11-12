@@ -1508,7 +1508,18 @@ if __name__ == "__main__":
     #     print(f"\n[SUCCESS] Decoded {len(decoded_files)} files")
     
     # # Test format 31 with full batch decode
-    # test_download_and_decode_someone_arts(401670591)  # monsters's user ID (has format 31 files)
+    # test_download_and_decode_someone_arts(401670591)  # monsters's user ID (has format 41 files)
+
+    # TODO: format 41 files are not supported yet
+    #   [199/428] 3981085: 
+    # File format: 41
+    # Unsupported file format: 41
+    #   [SKIP] Unsupported or failed decode (ID: 3981085)
+    #   [200/428] 3980953:
+    # File format: 41
+    # Unsupported file format: 41
+    #   [SKIP] Unsupported or failed decode (ID: 3980953)
+    
     # test_download_and_decode_someone_arts(403794905) # badguy's user ID
     # test_download_and_decode_someone_arts(400568695) # LeCDrom's user ID
     # test_download_and_decode_someone_arts(401553003) # fantabulicious's user ID
@@ -1528,7 +1539,7 @@ if __name__ == "__main__":
     
     # Test GetCategoryFileListV2 endpoint
     # test_fetch_category_files(18)
-    test_download_and_decode_gallery_files(18)
+    # test_download_and_decode_gallery_files(18)
 
     # Test decode and compare format 26 reference animations
     # decode_and_compare_format_26()
