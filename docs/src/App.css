@@ -21,6 +21,36 @@ body {
   margin-bottom: 1.5rem;
 }
 
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.language-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.language-button {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(6, 10, 20, 0.7);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.language-button.active {
+  border-color: rgba(110, 91, 255, 0.7);
+  box-shadow: 0 8px 18px rgba(80, 125, 255, 0.35);
+}
+
 .app-shell header h1 {
   margin: 0;
   font-size: 2rem;
@@ -224,6 +254,10 @@ tr:hover td {
   flex-wrap: wrap;
   gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.artist-name {
+  font-weight: 600;
 }
 
 .preview-canvas {

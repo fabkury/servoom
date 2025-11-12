@@ -7,7 +7,7 @@ Browser-based Divoom toolkit that mirrors the Python CLI without any server-side
 
 ## Getting Started
 ```bash
-cd webapp
+cd docs
 npm install
 npm run dev
 ```
@@ -17,7 +17,7 @@ Open the printed local URL, enter your Divoom credentials (plain password or pre
 ```bash
 npm run build
 ```
-The static assets land in `webapp/dist/`. Serve them from any static host (GitHub Pages, Netlify, S3, etc.). Because Pyodide relies on `SharedArrayBuffer`, **your host must send** the following HTTP headers for the main HTML file (Vite dev/preview already does this):
+The static assets land in `docs/dist/`. Serve them from any static host (GitHub Pages, Netlify, S3, etc.). Because Pyodide relies on `SharedArrayBuffer`, **your host must send** the following HTTP headers for the main HTML file (Vite dev/preview already does this):
 
 ```
 Cross-Origin-Opener-Policy: same-origin

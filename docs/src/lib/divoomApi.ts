@@ -28,6 +28,20 @@ const DEFAULT_HEADERS = {
   'User-Agent': 'Aurabox/3.1.10 (iPad; iOS 14.8; Scale/2.00)',
 };
 
+export type ApiAction = 'login' | 'category' | 'userGallery' | 'search';
+
+export class ApiError extends Error {
+  action: ApiAction;
+  code: number;
+
+  constructor(action: ApiAction, code: number) {
+    super(`${action} failed with ReturnCode ${code}`);
+    this.name = 'ApiError';
+    this.action = action;
+    this.code = code;
+  }
+}
+
 async function postJson<T>(url: string, body: Record<string, unknown>): Promise<T> {
   const resp = await fetch(url, {
     method: 'POST',
@@ -51,7 +65,7 @@ export async function login(email: string, md5Password: string): Promise<Session
   });
 
   if (response.ReturnCode !== 0) {
-    throw new Error(`Login failed with ReturnCode ${response.ReturnCode}`);
+    throw new ApiError('login', response.ReturnCode);
   }
 
   return {
@@ -93,7 +107,7 @@ export async function fetchCategoryFiles(
   }>(`${API_BASE}/GetCategoryFileListV2`, payload);
 
   if (response.ReturnCode !== 0) {
-    throw new Error(`Category fetch failed with ReturnCode ${response.ReturnCode}`);
+    throw new ApiError('category', response.ReturnCode);
   }
   return response.FileList ?? [];
 }
@@ -106,15 +120,8 @@ export interface UserSummary {
   Score?: number;
 }
 
-export async function searchUsers(
-  session: Session,
-  query: string,
-  start = 1,
-  end = 20,
-): Promise<UserSummary[]> {
+export async function searchUsers(session: Session, query: string): Promise<UserSummary[]> {
   const payload = {
-    StartNum: start,
-    EndNum: end,
     Keywords: query,
     Token: session.token,
     UserId: session.userId,
@@ -126,7 +133,7 @@ export async function searchUsers(
   }>(`${API_BASE}/SearchUser`, payload);
 
   if (response.ReturnCode !== 0) {
-    throw new Error(`SearchUser failed with ReturnCode ${response.ReturnCode}`);
+    throw new ApiError('search', response.ReturnCode);
   }
   return response.UserList ?? [];
 }
@@ -156,7 +163,7 @@ export async function fetchUserGallery(
   }>(`${API_BASE}/GetSomeoneListV2`, payload);
 
   if (response.ReturnCode !== 0) {
-    throw new Error(`GetSomeoneList failed with ReturnCode ${response.ReturnCode}`);
+    throw new ApiError('userGallery', response.ReturnCode);
   }
   return response.FileList ?? [];
 }
