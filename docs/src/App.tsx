@@ -29,7 +29,7 @@ interface DecodeState {
 const DEFAULT_CATEGORY = 18;
 const PAGE_SIZE = 30;
 const API_BATCH_LIMIT = 30;
-const MAX_ITEMS = 1000;
+const MAX_ITEMS = 500;
 const LOCALE_STORAGE_KEY = 'servoom-locale';
 
 type Locale = 'en' | 'es' | 'zh' | 'ja' | 'ru';
