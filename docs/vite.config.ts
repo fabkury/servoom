@@ -6,14 +6,19 @@ const securityHeaders = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
 };
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    host: '0.0.0.0',
-    headers: securityHeaders,
-  },
-  preview: {
-    host: '0.0.0.0',
-    headers: securityHeaders,
-  },
+export default defineConfig(({ mode }) => {
+  const base = mode === 'production' ? '/servoom/' : '/';
+
+  return {
+    base,
+    plugins: [react()],
+    server: {
+      host: '0.0.0.0',
+      headers: securityHeaders,
+    },
+    preview: {
+      host: '0.0.0.0',
+      headers: securityHeaders,
+    },
+  };
 });
