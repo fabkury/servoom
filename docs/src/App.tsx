@@ -3,6 +3,11 @@ import type { FormEvent } from 'react';
 import SparkMD5 from 'spark-md5';
 import JSZip from 'jszip';
 import './App.css';
+import flagUS from './assets/flags/us.svg';
+import flagES from './assets/flags/es.svg';
+import flagCN from './assets/flags/cn.svg';
+import flagJP from './assets/flags/jp.svg';
+import flagRU from './assets/flags/ru.svg';
 import type { GalleryInfo, Session, UserSummary } from './lib/divoomApi';
 import {
   ApiError,
@@ -754,12 +759,12 @@ const translations: Record<Locale, Translation> = {
   },
 };
 
-const localeOptions: Array<{ locale: Locale; flag: string; label: string }> = [
-  { locale: 'en', flag: '🇺🇸', label: 'English' },
-  { locale: 'es', flag: '🇪🇸', label: 'Español' },
-  { locale: 'zh', flag: '🇨🇳', label: '中文' },
-  { locale: 'ja', flag: '🇯🇵', label: '日本語' },
-  { locale: 'ru', flag: '🇷🇺', label: 'Русский' },
+const localeOptions: Array<{ locale: Locale; icon: string; label: string }> = [
+  { locale: 'en', icon: flagUS, label: 'English' },
+  { locale: 'es', icon: flagES, label: 'Español' },
+  { locale: 'zh', icon: flagCN, label: '中文' },
+  { locale: 'ja', icon: flagJP, label: '日本語' },
+  { locale: 'ru', icon: flagRU, label: 'Русский' },
 ];
 
 class CancelledError extends Error {
@@ -1625,8 +1630,9 @@ function App() {
                 className={option.locale === locale ? 'language-button active' : 'language-button'}
                 onClick={() => setLocale(option.locale)}
                 title={option.label}
+                aria-label={option.label}
               >
-                {option.flag}
+                <img src={option.icon} alt={option.label} className="flag-icon" loading="lazy" />
               </button>
             ))}
           </div>
