@@ -164,41 +164,6 @@ button:not(:disabled):hover {
   box-shadow: 0 10px 25px rgba(80, 125, 255, 0.35);
 }
 
-.password-input-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.password-input-wrapper input {
-  width: 100%;
-  padding-right: 2.5rem;
-}
-
-.password-toggle {
-  position: absolute;
-  right: 0.35rem;
-  background: none;
-  border: none;
-  border-radius: 50%;
-  padding: 0.2rem;
-  line-height: 1;
-  font-size: 1.1rem;
-  color: #cdd6e5;
-  box-shadow: none;
-}
-
-.password-toggle:hover {
-  transform: none;
-  box-shadow: none;
-  color: #fff;
-}
-
-.password-toggle:focus-visible {
-  outline: 2px solid rgba(53, 177, 255, 0.8);
-  outline-offset: 2px;
-}
-
 table {
   width: 100%;
   border-collapse: collapse;
