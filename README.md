@@ -11,6 +11,10 @@ Toolkit for exploring the Divoom Cloud:
 
 The project offers a CLI workflow, decoding utilities that understand the formats observed in the Divoom ecosystem, plus helpers for exporting metadata (likes, comments, others) to CSV.
 
+## Web app / GitHub Pages
+
+A browser-based companion lives in `docs/` and is continuously deployed to GitHub Pages: [https://fabkury.github.io/servoom/](https://fabkury.github.io/servoom/). The site mirrors the Python tooling—log in with your credentials, browse categories or users, decode previews, and export WebP/GIF/DAT bundles straight from the browser. To work on it locally, `cd docs && npm install && npm run dev`.
+
 ## Features
 - Authenticate against the Divoom cloud API.
 - Fetch uploads, likes, tag metadata, and feeds via `DivoomClient`.
