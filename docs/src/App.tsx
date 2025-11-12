@@ -61,8 +61,6 @@ interface Translation {
     nextPage: string;
     loading: string;
     searching: string;
-    showPassword: string;
-    hidePassword: string;
   };
   labels: {
     email: string;
@@ -178,8 +176,6 @@ const translations: Record<Locale, Translation> = {
       nextPage: 'Next',
       loading: 'Loading…',
       searching: 'Searching…',
-      showPassword: 'Show password',
-      hidePassword: 'Hide password',
     },
     labels: {
       email: 'Email',
@@ -302,8 +298,6 @@ const translations: Record<Locale, Translation> = {
       nextPage: 'Siguiente',
       loading: 'Cargando…',
       searching: 'Buscando…',
-      showPassword: 'Mostrar contraseña',
-      hidePassword: 'Ocultar contraseña',
     },
     labels: {
       email: 'Correo electrónico',
@@ -429,8 +423,6 @@ const translations: Record<Locale, Translation> = {
       nextPage: '下一页',
       loading: '加载中…',
       searching: '搜索中…',
-      showPassword: '显示密码',
-      hidePassword: '隐藏密码',
     },
     labels: {
       email: '邮箱',
@@ -555,8 +547,6 @@ const translations: Record<Locale, Translation> = {
       nextPage: '次へ',
       loading: '読み込み中…',
       searching: '検索中…',
-      showPassword: 'パスワードを表示',
-      hidePassword: 'パスワードを非表示',
     },
     labels: {
       email: 'メールアドレス',
@@ -679,8 +669,6 @@ const translations: Record<Locale, Translation> = {
       nextPage: 'Вперёд',
       loading: 'Загрузка…',
       searching: 'Поиск…',
-      showPassword: 'Показать пароль',
-      hidePassword: 'Скрыть пароль',
     },
     labels: {
       email: 'Email',
@@ -1057,7 +1045,6 @@ function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordIsMd5, setPasswordIsMd5] = useState(false);
-  const [passwordVisible, setPasswordVisible] = useState(false);
   const [loginError, setLoginError] = useState<UiError | null>(null);
 
   const [categoryId, setCategoryId] = useState(DEFAULT_CATEGORY);
@@ -1669,25 +1656,13 @@ function App() {
             </label>
             <label title={t.tooltips.hash}>
               {t.labels.password}
-              <div className="password-input-wrapper">
-                <input
-                  type={passwordVisible ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  title={t.tooltips.hash}
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() => setPasswordVisible((visible) => !visible)}
-                  aria-label={passwordVisible ? t.buttons.hidePassword : t.buttons.showPassword}
-                  title={passwordVisible ? t.buttons.hidePassword : t.buttons.showPassword}
-                  aria-pressed={passwordVisible}
-                >
-                  {passwordVisible ? '🙈' : '👁'}
-                </button>
-              </div>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                title={t.tooltips.hash}
+              />
             </label>
             <label className="checkbox" title={t.tooltips.hash}>
               <input
