@@ -115,23 +115,27 @@ class AnimSingleDecoder(BaseDecoder):
 
         # Decrypt AES
         decrypted_data = self._decrypt_aes(encrypted_data)
-        total_frames = len(decrypted_data) // 768
-
+        decrypted_size = len(decrypted_data)
+        
+        total_frames = decrypted_size // 768
+        
         # Parse frames data
         frames_data = []
         for i in range(total_frames):
             pos = i * 768
-            frames_data.append(decrypted_data[pos : pos + 768])
+            frame_bytes = decrypted_data[pos : pos + 768]
+            frames_data.append(frame_bytes)
 
         # Convert to numpy arrays
         frames_arrays = self._compact(frames_data, total_frames)
 
         return PixelBean(
-            total_frames,
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=total_frames,
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
@@ -171,11 +175,12 @@ class AnimMultiDecoder(BaseDecoder):
         )
 
         return PixelBean(
-            total_frames,
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=total_frames,
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
@@ -216,6 +221,18 @@ class Decoder0x1A(BaseDecoder):
 
     def _decode_frame_data_0x0c(self, data):
         """Decode a single frame with 0x0C encryption type."""
+        # Check for solid color frame pattern: AA 0B 00 F4 01 0C 01 00 R G B
+        # This is a special encoding for frames that are entirely one solid color
+        if len(data) == 11 and data[0] == 0xAA and data[1] == 0x0B and data[2] == 0x00 and \
+           data[3] == 0xF4 and data[4] == 0x01 and data[5] == 0x0C and data[6] == 0x01 and data[7] == 0x00:
+            # Extract RGB color from bytes 8, 9, 10
+            r = data[8]
+            g = data[9]
+            b = data[10]
+            # Create solid color frame (64x64 = 4096 pixels * 3 channels = 12288 bytes)
+            output = bytearray([r, g, b] * 4096)
+            return output
+        
         if len(data) < 8:
             raise Exception(f'Frame data too short: {len(data)} bytes')
         
@@ -281,7 +298,7 @@ class Decoder0x1A(BaseDecoder):
         """Decode the animation file and return a PixelBean."""
         # Read container header (5 bytes)
         header_bytes = self._fp.read(5)
-        total_frames = header_bytes[0]
+        total_frames_declared = header_bytes[0]
         speed = unpack('>H', header_bytes[1:3])[0]
         row_count = header_bytes[3]
         column_count = header_bytes[4]
@@ -316,7 +333,7 @@ class Decoder0x1A(BaseDecoder):
         if uses_0x0c_format:
             # Decode 0x0C format frames (AnimMulti64Decoder logic)
             pos = 0
-            for frame_idx in range(total_frames):
+            for frame_idx in range(total_frames_declared):
                 if pos + 4 > len(all_frame_data):
                     break
                 
@@ -350,7 +367,7 @@ class Decoder0x1A(BaseDecoder):
             pos = 0
             shared_palette: List[Tuple[int, int, int]] = []
             
-            for frame_idx in range(total_frames):
+            for frame_idx in range(total_frames_declared):
                 if pos >= len(all_frame_data):
                     break
                 
@@ -433,15 +450,23 @@ class Decoder0x1A(BaseDecoder):
                     except:
                         break
         
+        frames_decoded = len(frames_rgb)
+        
+        # Compare declared vs decoded frame counts
+        print(f'  Declared frames: {total_frames_declared}, Decoded frames: {frames_decoded}')
+        if total_frames_declared != frames_decoded:
+            print(f'  [WARNING] FRAME COUNT MISMATCH! Declared {total_frames_declared} frames but only {frames_decoded} frames were successfully decoded!')
+        
         # Build numpy arrays from decoded RGB data
         frames_arrays = self._build_frames_arrays(frames_rgb, width, height)
         
         return PixelBean(
-            len(frames_rgb),
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=frames_decoded,  # Use actual decoded count
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
     
     def _build_frames_arrays(self, frames_rgb, width, height):
@@ -957,11 +982,12 @@ class PicMultiDecoder(BaseDecoder):
         )
         
         return PixelBean(
-            total_frames,
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=total_frames,
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
@@ -1031,11 +1057,12 @@ class AnimZstdRawRGBDecoder(BaseDecoder):
             pos += frame_bytes
         frames_arrays = self._build_frames_arrays(frames_rgb, width, height)
         return PixelBean(
-            target_frames,
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=target_frames,
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
@@ -1148,11 +1175,12 @@ class AnimEmbeddedImageDecoder(BaseDecoder):
         frames_rgb = self._extract_frames_rgb(data, width, height)
         frames_arrays = self._build_frames_arrays(frames_rgb, width, height)
         return PixelBean(
-            len(frames_rgb),
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=len(frames_rgb),
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
@@ -1185,6 +1213,18 @@ class AnimMulti64Decoder(BaseDecoder):
 
     def _decode_frame_data(self, data):
         """Decode a single 64x64 frame with 0x0C encryption."""
+        # Check for solid color frame pattern: AA 0B 00 F4 01 0C 01 00 R G B
+        # This is a special encoding for frames that are entirely one solid color
+        if len(data) == 11 and data[0] == 0xAA and data[1] == 0x0B and data[2] == 0x00 and \
+           data[3] == 0xF4 and data[4] == 0x01 and data[5] == 0x0C and data[6] == 0x01 and data[7] == 0x00:
+            # Extract RGB color from bytes 8, 9, 10
+            r = data[8]
+            g = data[9]
+            b = data[10]
+            # Create solid color frame (64x64 = 4096 pixels * 3 channels = 12288 bytes)
+            output = bytearray([r, g, b] * 4096)
+            return output
+        
         output = [None] * 12288  # 64x64 * 3 channels
         encrypt_type = data[5]
         if encrypt_type != 0x0C:
@@ -1238,25 +1278,43 @@ class AnimMulti64Decoder(BaseDecoder):
 
     def decode(self) -> PixelBean:
         """Decode 64x64 animation and return a PixelBean."""
-        total_frames, speed, row_count, column_count = unpack('>BHBB', self._fp.read(5))
+        total_frames_declared, speed, row_count, column_count = unpack('>BHBB', self._fp.read(5))
+        
         frames_data = []
 
-        for frame in range(total_frames):
-            size = unpack('>I', self._fp.read(4))[0]
-            frame_data = self._decode_frame_data(self._fp.read(size))
+        for frame in range(total_frames_declared):
+            size_bytes = self._fp.read(4)
+            if len(size_bytes) < 4:
+                break
+            
+            size = unpack('>I', size_bytes)[0]
+            frame_raw_data = self._fp.read(size)
+            
+            if len(frame_raw_data) < size:
+                break
+            
+            frame_data = self._decode_frame_data(frame_raw_data)
             frames_data.append(frame_data)
+
+        frames_decoded = len(frames_data)
+        
+        # Compare declared vs decoded frame counts
+        print(f'  Declared frames: {total_frames_declared}, Decoded frames: {frames_decoded}')
+        if total_frames_declared != frames_decoded:
+            print(f'  [WARNING] FRAME COUNT MISMATCH! Declared {total_frames_declared} frames but only {frames_decoded} frames were successfully decoded!')
 
         # Convert to numpy arrays
         frames_arrays = self._compact(
-            frames_data, total_frames, row_count, column_count
+            frames_data, total_frames_declared, row_count, column_count
         )
 
         return PixelBean(
-            total_frames,
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=frames_decoded,  # Use actual decoded count
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
@@ -1405,11 +1463,12 @@ class Decoder0x1F(BaseDecoder):
         
         # Return PixelBean
         return PixelBean(
-            len(frames_rgb),
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=len(frames_rgb),
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
@@ -1421,26 +1480,31 @@ class PixelBeanDecoder(object):
     def decode_stream(fp: IOBase) -> PixelBean:
         try:
             file_format = unpack('B', fp.read(1))[0]
-            print(f'File format: {file_format}')
-            file_format = FileFormat(file_format)
+            file_format_enum = FileFormat(file_format)
         except Exception:
             print(f'Unsupported file format: {file_format}')
             return None
 
-        if file_format == FileFormat.ANIM_SINGLE:
-            return AnimSingleDecoder(fp).decode()
-        elif file_format == FileFormat.ANIM_MULTIPLE:
-            return AnimMultiDecoder(fp).decode()
-        elif file_format == FileFormat.PIC_MULTIPLE:
-            return PicMultiDecoder(fp).decode()
-        elif file_format == FileFormat.ANIM_MULTIPLE_64:
+        if file_format_enum == FileFormat.ANIM_SINGLE:
+            decoded_bean = AnimSingleDecoder(fp).decode()
+            print(f'File format: {file_format}')
+            return decoded_bean
+        elif file_format_enum == FileFormat.ANIM_MULTIPLE:
+            decoded_bean = AnimMultiDecoder(fp).decode()
+            print(f'File format: {file_format}')
+            return decoded_bean
+        elif file_format_enum == FileFormat.PIC_MULTIPLE:
+            decoded_bean = PicMultiDecoder(fp).decode()
+            print(f'File format: {file_format}')
+            return decoded_bean
+        elif file_format_enum == FileFormat.ANIM_MULTIPLE_64:
             # Check dimensions to determine which decoder to use
             # Read header: total_frames (1), speed (2), row_count (1), column_count (1)
             header = fp.read(5)
             if len(header) < 5:
                 return None
             
-            total_frames = header[0]
+            total_frames_declared = header[0]
             speed = unpack('>H', header[1:3])[0]
             row_count = header[3]
             column_count = header[4]
@@ -1448,6 +1512,9 @@ class PixelBeanDecoder(object):
             # Calculate dimensions
             width = column_count * 16
             height = row_count * 16
+            
+            # Print format with canvas size
+            print(f'File format: {file_format} ({width}x{height})')
             
             # Create a new BytesIO stream with the header + remaining data
             import io as io_module
@@ -1457,10 +1524,13 @@ class PixelBeanDecoder(object):
             # Route to appropriate decoder based on dimensions
             if width == 64 and height == 64:
                 # Use AnimMulti64Decoder for 64x64 animations (0x0C encryption)
-                return AnimMulti64Decoder(new_fp).decode()
+                decoded_bean = AnimMulti64Decoder(new_fp).decode()
             else:
                 # Use Decoder0x1A for other sizes (128x128, etc.) with 0x11/0x13/0x15 encryption
-                return Decoder0x1A(new_fp).decode()
+                decoded_bean = Decoder0x1A(new_fp).decode()
+            
+            # Compare declared vs decoded frame counts (already printed by decoders)
+            return decoded_bean
         elif file_format == FileFormat.ANIM_FORMAT_0x1F:
             return Decoder0x1F(fp).decode()
         elif file_format == FileFormat.ANIM_CONTAINER_ZSTD:
