@@ -2,16 +2,21 @@
 Divoom API client for interacting with Divoom Gallery endpoints.
 """
 
+import hashlib
 import json
+import os
 import re
 import time
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple, Union
 
+import pandas as pd
 import requests
 
-from .api_client import APIxoo
 from .config import Config
+from .const import ApiEndpoint, Server
+from .pixel_bean import PixelBean, PixelBeanState
+from .pixel_bean_decoder import PixelBeanDecoder
 
 
 # ============================================================================
@@ -57,6 +62,21 @@ def sanitize_filename(filename: str) -> str:
     return sanitized
 
 
+def append_timestamp(filename: str) -> str:
+    """
+    Append current timestamp to filename.
+    
+    Args:
+        filename: Original filename with extension
+        
+    Returns:
+        Filename with timestamp appended before extension
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    file_name, file_extension = os.path.splitext(filename)
+    return f"{file_name}_{timestamp}{file_extension}"
+
+
 # ============================================================================
 # DIVOOM API CLIENT
 # ============================================================================
@@ -64,18 +84,71 @@ def sanitize_filename(filename: str) -> str:
 class DivoomClient:
     """Client for interacting with Divoom API."""
     
-    def __init__(self, email: str, md5_password: str):
+    HEADERS = {
+        'User-Agent': 'Aurabox/3.1.10 (iPad; iOS 14.8; Scale/2.00)',
+        'Content-Type': 'application/json'
+    }
+    
+    def __init__(self, email: str, md5_password: str = None, password: str = None):
         """
         Initialize Divoom API client.
         
         Args:
             email: User email
-            md5_password: MD5 hashed password
+            md5_password: MD5 hashed password (preferred)
+            password: Plain password (will be hashed to MD5)
         """
-        self.api = APIxoo(email, md5_password=md5_password)
+        if not any([password, md5_password]):
+            raise ValueError('Empty password!')
+        
+        # Get MD5 hash of password if plain password provided
+        if password:
+            md5_password = hashlib.md5(password.encode('utf-8')).hexdigest()
+        
+        self._email = email
+        self._md5_password = md5_password
         self.token = None
         self.user_id = None
+        self._request_timeout = Config.REQUEST_TIMEOUT
+    
+    def _full_url(self, path: str, server: Server = Server.API) -> str:
+        """Generate full URL from path"""
+        if not path.startswith('/'):
+            path = '/' + path
+        return f'https://{server.value}{path}'
+    
+    def _send_request(self, endpoint: str, payload: dict = None) -> dict:
+        """
+        Send request to API server.
         
+        Args:
+            endpoint: API endpoint path (e.g., '/UserLogin')
+            payload: Request payload dictionary
+            
+        Returns:
+            JSON response as dictionary
+        """
+        if payload is None:
+            payload = {}
+        
+        # Add auth tokens for non-login endpoints
+        if endpoint != ApiEndpoint.USER_LOGIN.value:
+            if not self.token or not self.user_id:
+                raise ValueError("Not logged in! Call login() first.")
+            payload.update({
+                'Token': self.token,
+                'UserId': self.user_id,
+            })
+        
+        full_url = self._full_url(endpoint, Server.API)
+        resp = requests.post(
+            full_url,
+            headers=self.HEADERS,
+            json=payload,
+            timeout=self._request_timeout,
+        )
+        return resp.json()
+    
     def login(self) -> bool:
         """
         Authenticate with Divoom API.
@@ -83,16 +156,277 @@ class DivoomClient:
         Returns:
             True if login successful, False otherwise
         """
-        status = self.api.log_in()
-        if status:
-            self.token = self.api._user['token']
-            self.user_id = self.api._user['user_id']
+        payload = {
+            'Email': self._email,
+            'Password': self._md5_password,
+        }
+        
+        try:
+            resp_json = self._send_request(ApiEndpoint.USER_LOGIN.value, payload)
+            self.user_id = resp_json['UserId']
+            self.token = resp_json['Token']
             print("[OK] Successfully logged in to Divoom API")
             return True
-        else:
-            print("[ERROR] Login failed!")
+        except Exception as e:
+            print(f"[ERROR] Login failed: {e}")
             return False
-
+    
+    def is_logged_in(self) -> bool:
+        """Check if logged in or not"""
+        return self.token is not None and self.user_id is not None
+    
+    # ========================================================================
+    # CORE ARTWORK OPERATIONS
+    # ========================================================================
+    
+    def fetch_artwork_info(self, gallery_id: int) -> Dict:
+        """
+        Fetch artwork metadata by gallery ID.
+        
+        Args:
+            gallery_id: ID of the gallery/artwork
+            
+        Returns:
+            Dictionary with artwork metadata, or None if failed
+            
+        Raises:
+            ValueError: If not logged in
+        """
+        if not self.is_logged_in():
+            raise ValueError("Not logged in! Call login() first.")
+        
+        payload = {
+            'GalleryId': gallery_id,
+        }
+        
+        try:
+            resp_json = self._send_request(ApiEndpoint.GET_GALLERY_INFO.value, payload)
+            if resp_json.get('ReturnCode', 0) != 0:
+                print(f"[ERROR] Failed to fetch artwork info: ReturnCode {resp_json.get('ReturnCode')}")
+                return None
+            
+            # Add gallery ID since it might not be included in the response
+            resp_json['GalleryId'] = gallery_id
+            return resp_json
+        except Exception as e:
+            print(f"[ERROR] Failed to fetch artwork info: {e}")
+            return None
+    
+    def download_art_by_id(self, gallery_id: int, output_dir: str = None) -> Tuple[PixelBean, str]:
+        """
+        Download artwork by gallery ID. Fetches metadata, creates PixelBean, and downloads the file.
+        
+        Args:
+            gallery_id: ID of the gallery/artwork to download
+            output_dir: Directory to save downloaded file (default: 'downloads')
+            
+        Returns:
+            Tuple of (PixelBean object, path to downloaded file)
+            
+        Raises:
+            ValueError: If gallery info cannot be fetched or file cannot be downloaded
+        """
+        # Fetch artwork metadata
+        metadata = self.fetch_artwork_info(gallery_id)
+        if not metadata:
+            raise ValueError(f"Failed to fetch metadata for gallery ID {gallery_id}")
+        
+        # Create PixelBean from metadata
+        pixel_bean = PixelBean(metadata=metadata)
+        
+        # Download the artwork
+        file_path = self.download_art(pixel_bean, output_dir=output_dir)
+        
+        return pixel_bean, file_path
+    
+    def download_art(self, pixel_bean: PixelBean, output_dir: str = None) -> str:
+        """
+        Download artwork file for a PixelBean and update its state.
+        
+        Args:
+            pixel_bean: PixelBean with metadata (state: METADATA_ONLY)
+            output_dir: Directory to save downloaded file (default: 'downloads')
+            
+        Returns:
+            Path to downloaded file
+            
+        Raises:
+            ValueError: If PixelBean doesn't have required metadata or is already downloaded
+        """
+        if pixel_bean.state != PixelBeanState.METADATA_ONLY:
+            raise ValueError(f"Cannot download: PixelBean state is {pixel_bean.state.value}, expected METADATA_ONLY")
+        
+        file_id = pixel_bean.file_id
+        if not file_id:
+            raise ValueError("PixelBean missing FileId in metadata")
+        
+        gallery_id = pixel_bean.gallery_id
+        file_name = pixel_bean.file_name or f'art_{gallery_id}'
+        
+        # Set default output directory
+        if output_dir is None:
+            output_dir = 'downloads'
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Construct download URL
+        file_url = f"https://{Server.FILE.value}/{file_id}"
+        
+        # Create safe filename
+        sanitized_name = sanitize_filename(file_name)
+        safe_filename = f"{gallery_id}_{sanitized_name}.dat"
+        output_path = os.path.join(output_dir, safe_filename)
+        
+        try:
+            # Download the file
+            resp = requests.get(
+                file_url,
+                headers=self.HEADERS,
+                stream=True,
+                timeout=self._request_timeout
+            )
+            resp.raise_for_status()
+            
+            # Write binary content to file
+            with open(output_path, 'wb') as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            # Update PixelBean state
+            pixel_bean.update_from_download(output_path)
+            print(f"[OK] Downloaded: {safe_filename}")
+            return output_path
+            
+        except requests.RequestException as e:
+            raise RuntimeError(f"Failed to download file: {e}") from e
+        except IOError as e:
+            raise RuntimeError(f"Failed to save file: {e}") from e
+    
+    def decode_art(self, pixel_bean: PixelBean) -> PixelBean:
+        """
+        Decode a downloaded Divoom file and update PixelBean with animation data.
+        
+        Args:
+            pixel_bean: PixelBean with downloaded file (state: DOWNLOADED)
+            
+        Returns:
+            Updated PixelBean with decoded animation data (state: COMPLETE)
+            
+        Raises:
+            ValueError: If PixelBean doesn't have a file path or is not in DOWNLOADED state
+        """
+        if pixel_bean.state != PixelBeanState.DOWNLOADED:
+            raise ValueError(f"Cannot decode: PixelBean state is {pixel_bean.state.value}, expected DOWNLOADED. Please download the file first.")
+        
+        file_path = pixel_bean.file_path
+        if not file_path or not os.path.exists(file_path):
+            raise ValueError(f"File not found: {file_path}")
+        
+        try:
+            # Decode the file
+            decoded_bean = PixelBeanDecoder.decode_file(file_path)
+            if decoded_bean is None:
+                raise ValueError("Failed to decode file: unsupported format or corrupted file")
+            
+            # Update PixelBean with decoded data
+            pixel_bean.update_from_decode(
+                total_frames=decoded_bean.total_frames,
+                speed=decoded_bean.speed,
+                row_count=decoded_bean.row_count,
+                column_count=decoded_bean.column_count,
+                frames_data=decoded_bean.frames_data
+            )
+            
+            print(f"[OK] Decoded: {os.path.basename(file_path)}")
+            return pixel_bean
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to decode file: {e}") from e
+    
+    def export_artworks_to_csv(
+        self,
+        pixel_beans: List[PixelBean],
+        base_filename: str = 'artworks',
+        output_dir: str = None,
+        include_tags: bool = True
+    ) -> Dict[str, str]:
+        """
+        Export artwork metadata to CSV files.
+        
+        Args:
+            pixel_beans: List of PixelBean objects to export
+            base_filename: Base filename for CSV files
+            output_dir: Output directory (default: Config.OUTPUT_DIR)
+            include_tags: Whether to create a separate tags CSV file
+            
+        Returns:
+            Dictionary mapping export type to file path:
+            - 'artworks': Path to main artworks CSV
+            - 'tags': Path to tags CSV (if include_tags=True)
+        """
+        if output_dir is None:
+            output_dir = Config.OUTPUT_DIR
+        
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Process artworks data
+        processed_data = []
+        for bean in pixel_beans:
+            metadata = bean.metadata
+            row = {}
+            for key, mapped_name in Config.FIELD_MAPPINGS.items():
+                if key in metadata:
+                    value = metadata[key]
+                    # Apply transformations
+                    if key == "Date":
+                        value = convert_epoch_to_local(value)
+                    elif key == "FileSize":
+                        value = str(value)
+                    row[mapped_name] = value
+            processed_data.append(row)
+        
+        df_arts = pd.DataFrame(processed_data)
+        
+        # Export main artworks CSV
+        filename = append_timestamp(f'{base_filename}.csv')
+        artworks_path = os.path.join(output_dir, filename)
+        df_arts.to_csv(artworks_path, index=False)
+        print(f"[OK] Exported artworks: {artworks_path}")
+        
+        result = {'artworks': artworks_path}
+        
+        # Export tags CSV if requested
+        if include_tags:
+            tags_data = []
+            for bean in pixel_beans:
+                metadata = bean.metadata
+                gallery_id = metadata.get("GalleryId")
+                file_name = metadata.get("FileName")
+                tags = metadata.get("FileTagArray", [])
+                
+                for tag in tags:
+                    tags_data.append({
+                        "GalleryId": gallery_id,
+                        "Art Name": file_name,
+                        "Tag Name": tag
+                    })
+            
+            if tags_data:
+                df_tags = pd.DataFrame(tags_data)
+                tags_filename = append_timestamp(f'{base_filename}_tags.csv')
+                tags_path = os.path.join(output_dir, tags_filename)
+                df_tags.to_csv(tags_path, index=False)
+                print(f"[OK] Exported tags: {tags_path}")
+                result['tags'] = tags_path
+        
+        return result
+    
+    # ========================================================================
+    # FETCH METHODS (return Dict for backward compatibility)
+    # ========================================================================
+    
     def fetch_my_arts(self, batch_size: int = None) -> List[Dict]:
         """
         Fetch all uploaded arts from the user's gallery.
@@ -127,9 +461,9 @@ class DivoomClient:
             try:
                 resp = requests.post(
                     Config.MY_ARTS_ENDPOINT,
-                    headers=Config.HEADERS,
+                    headers=self.HEADERS,
                     json=payload,
-                    timeout=Config.REQUEST_TIMEOUT
+                    timeout=self._request_timeout
                 )
                 data = resp.json()
                 arts = data.get('FileList', [])
@@ -154,6 +488,19 @@ class DivoomClient:
                 
         print(f"[OK] Fetched {len(all_arts)} arts total")
         return all_arts
+    
+    def fetch_my_arts_as_beans(self, batch_size: int = None) -> List[PixelBean]:
+        """
+        Fetch all uploaded arts from the user's gallery as PixelBean objects.
+        
+        Args:
+            batch_size: Number of items to fetch per request (default from Config)
+            
+        Returns:
+            List of PixelBean objects (metadata-only state)
+        """
+        arts_data = self.fetch_my_arts(batch_size=batch_size)
+        return [PixelBean(metadata=art) for art in arts_data]
     
     def fetch_likes_for_art(self, gallery_id: int, batch_size: int = None) -> List[Dict]:
         """
@@ -185,9 +532,9 @@ class DivoomClient:
                     
                     resp = requests.post(
                         Config.MY_LIKES_ENDPOINT,
-                        headers=Config.HEADERS,
+                        headers=self.HEADERS,
                         json=payload,
-                        timeout=Config.REQUEST_TIMEOUT
+                        timeout=self._request_timeout
                     )
                     data = resp.json()
                     user_list = data.get('UserList', [])
@@ -218,10 +565,6 @@ class DivoomClient:
             
         Returns:
             List of art dictionaries from the target user
-            
-        Note:
-            Fill in the correct payload parameters for this endpoint.
-            Use debug=True to see request/response details.
         """
         if batch_size is None:
             batch_size = Config.BATCH_SIZE
@@ -233,7 +576,6 @@ class DivoomClient:
         while True:
             end_num = start_num + batch_size - 1
             
-            # Payload for GetSomeoneListV2
             payload = {
                 "StartNum": start_num,
                 "EndNum": end_num,
@@ -265,9 +607,9 @@ class DivoomClient:
             try:
                 resp = requests.post(
                     Config.SOMEONE_LIST_ENDPOINT,
-                    headers=Config.HEADERS,
+                    headers=self.HEADERS,
                     json=payload,
-                    timeout=Config.REQUEST_TIMEOUT
+                    timeout=self._request_timeout
                 )
                 
                 # Try to parse JSON response
@@ -293,7 +635,6 @@ class DivoomClient:
                         print(f"  [ERROR] Server returned error code: {data.get('ReturnCode')}")
                     break
                 
-                # TODO: Verify the correct field name for the arts list
                 arts = data.get('FileList', [])
                 
                 if not arts:
@@ -317,6 +658,22 @@ class DivoomClient:
         print(f"[OK] Fetched {len(all_arts)} arts from User ID {target_user_id}")
         return all_arts
     
+    def fetch_someone_arts_as_beans(self, target_user_id: int, batch_size: int = None, debug: bool = False, **kwargs) -> List[PixelBean]:
+        """
+        Fetch arts uploaded by a specific user as PixelBean objects.
+        
+        Args:
+            target_user_id: ID of the user whose arts to fetch
+            batch_size: Number of items to fetch per request (default from Config)
+            debug: Enable verbose debugging output (default False)
+            **kwargs: Additional parameters to pass to the API
+            
+        Returns:
+            List of PixelBean objects (metadata-only state)
+        """
+        arts_data = self.fetch_someone_arts(target_user_id, batch_size=batch_size, debug=debug, **kwargs)
+        return [PixelBean(metadata=art) for art in arts_data]
+    
     def download_someone_arts(self, target_user_id: int, output_dir: str = None, batch_size: int = None, debug: bool = False, **kwargs) -> List[str]:
         """
         Download all arts from a specific user.
@@ -331,9 +688,6 @@ class DivoomClient:
         Returns:
             List of downloaded file paths
         """
-        import os
-        from config import Config
-        
         # Set default output directory
         if output_dir is None:
             output_dir = os.path.join('downloads', str(target_user_id))
@@ -344,58 +698,25 @@ class DivoomClient:
         print(f"Downloading arts for User ID: {target_user_id}...")
         print(f"Output directory: {output_dir}")
         
-        # Fetch the arts list
-        arts_data = self.fetch_someone_arts(target_user_id, batch_size=batch_size, debug=debug, **kwargs)
+        # Fetch the arts list as PixelBeans
+        beans = self.fetch_someone_arts_as_beans(target_user_id, batch_size=batch_size, debug=debug, **kwargs)
         
-        if not arts_data:
+        if not beans:
             print("No arts to download")
             return []
         
         downloaded_files = []
-        print(f"\nDownloading {len(arts_data)} files...")
+        print(f"\nDownloading {len(beans)} files...")
         
-        for i, art in enumerate(arts_data, 1):
-            file_id = art.get('FileId')
-            file_name = art.get('FileName', f'art_{i}')
-            gallery_id = art.get('GalleryId', i)
-            
-            if not file_id:
-                print(f"  [{i}/{len(arts_data)}] Skipping art {gallery_id}: No FileId")
-                continue
-            
-            # Construct download URL using the same pattern as apixoo
-            file_url = f"https://f.divoom-gz.com/{file_id}"
-            
-            # Create safe filename using gallery ID and sanitized original filename
-            sanitized_name = sanitize_filename(file_name)
-            safe_filename = f"{gallery_id}_{sanitized_name}.dat"
-            output_path = os.path.join(output_dir, safe_filename)
-            
+        for i, bean in enumerate(beans, 1):
             try:
-                # Download the file in binary format
-                resp = requests.get(
-                    file_url,
-                    headers=Config.HEADERS,
-                    stream=True,
-                    timeout=Config.REQUEST_TIMEOUT
-                )
-                resp.raise_for_status()
-                
-                # Write binary content to file
-                with open(output_path, 'wb') as f:
-                    for chunk in resp.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                
-                downloaded_files.append(output_path)
-                print(f"  [{i}/{len(arts_data)}] Downloaded: {safe_filename}")
-                
-            except requests.RequestException as e:
-                print(f"  [{i}/{len(arts_data)}] Failed to download {gallery_id}: {e}")
-            except IOError as e:
-                print(f"  [{i}/{len(arts_data)}] Failed to save {gallery_id}: {e}")
+                file_path = self.download_art(bean, output_dir=output_dir)
+                downloaded_files.append(file_path)
+            except Exception as e:
+                gallery_id = bean.gallery_id or i
+                print(f"  [{i}/{len(beans)}] Failed to download {gallery_id}: {e}")
         
-        print(f"\n[OK] Downloaded {len(downloaded_files)}/{len(arts_data)} files to: {output_dir}")
+        print(f"\n[OK] Downloaded {len(downloaded_files)}/{len(beans)} files to: {output_dir}")
         return downloaded_files
     
     def download_my_arts(self, output_dir: str = None, batch_size: int = None) -> List[str]:
@@ -409,9 +730,6 @@ class DivoomClient:
         Returns:
             List of downloaded file paths
         """
-        import os
-        from config import Config
-        
         # Set default output directory
         if output_dir is None:
             output_dir = os.path.join('downloads', 'my_arts')
@@ -422,79 +740,35 @@ class DivoomClient:
         print(f"Downloading my arts...")
         print(f"Output directory: {output_dir}")
         
-        # Fetch the arts list
-        arts_data = self.fetch_my_arts(batch_size=batch_size)
+        # Fetch the arts list as PixelBeans
+        beans = self.fetch_my_arts_as_beans(batch_size=batch_size)
         
-        if not arts_data:
+        if not beans:
             print("No arts to download")
             return []
         
         downloaded_files = []
-        print(f"\nDownloading {len(arts_data)} files...")
+        print(f"\nDownloading {len(beans)} files...")
         
-        for i, art in enumerate(arts_data, 1):
-            file_id = art.get('FileId')
-            file_name = art.get('FileName', f'art_{i}')
-            gallery_id = art.get('GalleryId', i)
-            
-            if not file_id:
-                print(f"  [{i}/{len(arts_data)}] Skipping art {gallery_id}: No FileId")
-                continue
-            
-            # Construct download URL using the same pattern as apixoo
-            file_url = f"https://f.divoom-gz.com/{file_id}"
-            
-            # Create safe filename using gallery ID and sanitized original filename
-            sanitized_name = sanitize_filename(file_name)
-            safe_filename = f"{gallery_id}_{sanitized_name}.dat"
-            output_path = os.path.join(output_dir, safe_filename)
-            
+        for i, bean in enumerate(beans, 1):
             try:
-                # Download the file in binary format
-                resp = requests.get(
-                    file_url,
-                    headers=Config.HEADERS,
-                    stream=True,
-                    timeout=Config.REQUEST_TIMEOUT
-                )
-                resp.raise_for_status()
-                
-                # Write binary content to file
-                with open(output_path, 'wb') as f:
-                    for chunk in resp.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                
-                downloaded_files.append(output_path)
-                print(f"  [{i}/{len(arts_data)}] Downloaded: {safe_filename}")
-                
-            except requests.RequestException as e:
-                print(f"  [{i}/{len(arts_data)}] Failed to download {gallery_id}: {e}")
-            except IOError as e:
-                print(f"  [{i}/{len(arts_data)}] Failed to save {gallery_id}: {e}")
+                file_path = self.download_art(bean, output_dir=output_dir)
+                downloaded_files.append(file_path)
+            except Exception as e:
+                gallery_id = bean.gallery_id or i
+                print(f"  [{i}/{len(beans)}] Failed to download {gallery_id}: {e}")
         
-        print(f"\n[OK] Downloaded {len(downloaded_files)}/{len(arts_data)} files to: {output_dir}")
+        print(f"\n[OK] Downloaded {len(downloaded_files)}/{len(beans)} files to: {output_dir}")
         return downloaded_files
     
+    # ========================================================================
+    # ADDITIONAL FETCH METHODS (keeping existing API)
+    # ========================================================================
+    
     def fetch_someone_info(self, target_user_id: int, debug: bool = False, **kwargs) -> Dict:
-        """
-        Fetch information about a specific user using GetSomeoneInfoV2 endpoint.
-        
-        Args:
-            target_user_id: ID of the user whose info to fetch
-            debug: Enable verbose debugging output (default False)
-            **kwargs: Additional parameters to pass to the API
-            
-        Returns:
-            Dictionary with user information, or None if failed
-            
-        Note:
-            Fill in the correct payload parameters for this endpoint.
-            Use debug=True to see request/response details.
-        """
+        """Fetch information about a specific user using GetSomeoneInfoV2 endpoint."""
         print(f"Fetching info for User ID: {target_user_id}...")
         
-        # TODO: Configure the correct payload for GetSomeoneInfoV2
         payload = {
             'Token': self.token,
             'UserId': self.user_id,
@@ -517,9 +791,9 @@ class DivoomClient:
         try:
             resp = requests.post(
                 Config.SOMEONE_INFO_ENDPOINT,
-                headers=Config.HEADERS,
+                headers=self.HEADERS,
                 json=payload,
-                timeout=Config.REQUEST_TIMEOUT
+                timeout=self._request_timeout
             )
             data = resp.json()
             
@@ -544,29 +818,12 @@ class DivoomClient:
             return None
     
     def fetch_tag_info(self, tag_name: str, debug: bool = False, **kwargs) -> Dict:
-        """
-        Fetch information about a specific tag using Tag/GetTagInfo endpoint.
-        
-        Args:
-            tag_name: Name of the tag to fetch info for
-            debug: Enable verbose debugging output (default False)
-            **kwargs: Additional parameters to pass to the API
-            
-        Returns:
-            Dictionary with tag information, or None if failed
-            
-        Note:
-            Fill in the correct payload parameters for this endpoint.
-            Use debug=True to see request/response details.
-        """
+        """Fetch information about a specific tag using Tag/GetTagInfo endpoint."""
         print(f"Fetching info for tag: {tag_name}...")
         
-        # TODO: Configure the correct payload for Tag/GetTagInfo
         payload = {
             'Token': self.token,
             'UserId': self.user_id,
-            # Add required parameters here
-            # Example: 'TagName': tag_name,
         }
         
         # Add any additional parameters
@@ -585,9 +842,9 @@ class DivoomClient:
         try:
             resp = requests.post(
                 Config.TAG_INFO_ENDPOINT,
-                headers=Config.HEADERS,
+                headers=self.HEADERS,
                 json=payload,
-                timeout=Config.REQUEST_TIMEOUT
+                timeout=self._request_timeout
             )
             data = resp.json()
             
@@ -612,22 +869,7 @@ class DivoomClient:
             return None
     
     def fetch_tag_gallery(self, tag_name: str, batch_size: int = None, debug: bool = False, **kwargs) -> List[Dict]:
-        """
-        Fetch arts from a specific tag using Tag/GetTagGalleryListV3 endpoint.
-        
-        Args:
-            tag_name: Name of the tag to fetch arts from
-            batch_size: Number of items to fetch per request (default from Config)
-            debug: Enable verbose debugging output (default False)
-            **kwargs: Additional parameters to pass to the API
-            
-        Returns:
-            List of art dictionaries from the tag
-            
-        Note:
-            Fill in the correct payload parameters for this endpoint.
-            Use debug=True to see request/response details.
-        """
+        """Fetch arts from a specific tag using Tag/GetTagGalleryListV3 endpoint."""
         if batch_size is None:
             batch_size = Config.BATCH_SIZE
             
@@ -638,12 +880,9 @@ class DivoomClient:
         while True:
             end_num = start_num + batch_size - 1
             
-            # TODO: Configure the correct payload for Tag/GetTagGalleryListV3
             payload = {
                 "StartNum": start_num,
                 "EndNum": end_num,
-                # Add required parameters here
-                # Example: 'TagName': tag_name,
                 'Token': self.token,
                 'UserId': self.user_id,
             }
@@ -664,9 +903,9 @@ class DivoomClient:
             try:
                 resp = requests.post(
                     Config.TAG_LIST_ENDPOINT,
-                    headers=Config.HEADERS,
+                    headers=self.HEADERS,
                     json=payload,
-                    timeout=Config.REQUEST_TIMEOUT
+                    timeout=self._request_timeout
                 )
                 data = resp.json()
                 
@@ -683,7 +922,6 @@ class DivoomClient:
                         print(f"  [ERROR] Server returned error code: {data.get('ReturnCode')}")
                     break
                 
-                # TODO: Verify the correct field name for the arts list
                 arts = data.get('FileList', [])
                 
                 if not arts:
@@ -708,17 +946,7 @@ class DivoomClient:
         return all_arts
     
     def search_user(self, query: str, debug: bool = False, **kwargs) -> List[Dict]:
-        """
-        Search for users using SearchUser endpoint.
-        
-        Args:
-            query: Search query string
-            debug: Enable verbose debugging output (default False)
-            **kwargs: Additional parameters to pass to the API
-            
-        Returns:
-            List of user dictionaries matching the query
-        """
+        """Search for users using SearchUser endpoint."""
         print(f"Searching for users: {query}...")
         
         payload = {
@@ -743,9 +971,9 @@ class DivoomClient:
         try:
             resp = requests.post(
                 Config.SEARCH_USER_ENDPOINT,
-                headers=Config.HEADERS,
+                headers=self.HEADERS,
                 json=payload,
-                timeout=Config.REQUEST_TIMEOUT
+                timeout=self._request_timeout
             )
             data = resp.json()
             
@@ -771,24 +999,9 @@ class DivoomClient:
             return []
     
     def search_tag(self, query: str, debug: bool = False, **kwargs) -> List[Dict]:
-        """
-        Search for tags using Tag/SearchTagMoreV2 endpoint.
-        
-        Args:
-            query: Search query string
-            debug: Enable verbose debugging output (default False)
-            **kwargs: Additional parameters to pass to the API
-            
-        Returns:
-            List of tag dictionaries matching the query
-            
-        Note:
-            Fill in the correct payload parameters for this endpoint.
-            Use debug=True to see request/response details.
-        """
+        """Search for tags using Tag/SearchTagMoreV2 endpoint."""
         print(f"Searching for tags: {query}...")
         
-        # TODO: Configure the correct payload for Tag/SearchTagMoreV2
         payload = {
             'Token': self.token,
             'UserId': self.user_id,
@@ -811,9 +1024,9 @@ class DivoomClient:
         try:
             resp = requests.post(
                 Config.SEARCH_TAG_ENDPOINT,
-                headers=Config.HEADERS,
+                headers=self.HEADERS,
                 json=payload,
-                timeout=Config.REQUEST_TIMEOUT
+                timeout=self._request_timeout
             )
             data = resp.json()
             
@@ -839,22 +1052,7 @@ class DivoomClient:
             return []
     
     def search_gallery(self, query: str, batch_size: int = None, debug: bool = False, **kwargs) -> List[Dict]:
-        """
-        Search for arts in gallery using SearchGalleryV3 endpoint.
-        
-        Args:
-            query: Search query string
-            batch_size: Number of items to fetch per request (default from Config)
-            debug: Enable verbose debugging output (default False)
-            **kwargs: Additional parameters to pass to the API
-            
-        Returns:
-            List of art dictionaries matching the query
-            
-        Note:
-            Fill in the correct payload parameters for this endpoint.
-            Use debug=True to see request/response details.
-        """
+        """Search for arts in gallery using SearchGalleryV3 endpoint."""
         if batch_size is None:
             batch_size = Config.BATCH_SIZE
             
@@ -865,7 +1063,6 @@ class DivoomClient:
         while True:
             end_num = start_num + batch_size - 1
             
-            # TODO: Configure the correct payload for SearchGalleryV3
             payload = {
                 "StartNum": start_num,
                 "EndNum": end_num,
@@ -890,9 +1087,9 @@ class DivoomClient:
             try:
                 resp = requests.post(
                     Config.SEARCH_GALLERY_ENDPOINT,
-                    headers=Config.HEADERS,
+                    headers=self.HEADERS,
                     json=payload,
-                    timeout=Config.REQUEST_TIMEOUT
+                    timeout=self._request_timeout
                 )
                 data = resp.json()
                 
@@ -909,7 +1106,6 @@ class DivoomClient:
                         print(f"  [ERROR] Server returned error code: {data.get('ReturnCode')}")
                     break
                 
-                # TODO: Verify the correct field name for the arts list
                 arts = data.get('FileList', [])
                 
                 if not arts:
@@ -934,21 +1130,7 @@ class DivoomClient:
         return all_arts
     
     def fetch_report_gallery(self, batch_size: int = None, debug: bool = True, **kwargs) -> List[Dict]:
-        """
-        Fetch reported gallery items using Manager/GetReportGallery endpoint.
-        
-        Args:
-            batch_size: Number of items to fetch per request (default from Config)
-            debug: Enable verbose debugging output (default False)
-            **kwargs: Additional parameters to pass to the API
-            
-        Returns:
-            List of reported gallery dictionaries
-            
-        Note:
-            This endpoint is used to retrieve gallery items that have been reported.
-            Use debug=True to see request/response details.
-        """
+        """Fetch reported gallery items using Manager/GetReportGallery endpoint."""
         if batch_size is None:
             batch_size = Config.BATCH_SIZE
             
@@ -959,16 +1141,6 @@ class DivoomClient:
         while True:
             end_num = start_num + batch_size - 1
             
-            # CLOUD_GALLERY_SELF(0),
-            # CLOUD_GALLERY_DIVOOM(1),
-            # CLOUD_GALLERY_HOT(2),
-            # CLOUD_GALLERY_NEW(3);
-
-            dimension = 16
-            file_type = 5
-            sort = 0
-
-            # Payload for Manager/GetReportGallery
             payload = {
                 "StartNum": start_num,
                 "EndNum": end_num,
@@ -983,10 +1155,9 @@ class DivoomClient:
                 "IsAddRecommend": 1,
                 "Good": 1,
                 "IsAddGood": 1,
-                "Classify": 18,
-                "FileSize": dimension,
-                "FileType": file_type,
-                "FileSort": sort,
+                "FileSize": 16,
+                "FileType": 5,
+                "FileSort": 0,
                 "ShowAllFlag": 1,
                 "GalleryId": 4152005,
                 "CoId": 2237731,
@@ -1025,9 +1196,9 @@ class DivoomClient:
             try:
                 resp = requests.post(
                     Config.MANAGER_GET_REPORT_GALLERY,
-                    headers=Config.HEADERS,
+                    headers=self.HEADERS,
                     json=payload,
-                    timeout=Config.REQUEST_TIMEOUT
+                    timeout=self._request_timeout
                 )
                 
                 # Try to parse JSON response
@@ -1041,7 +1212,7 @@ class DivoomClient:
                     break
                 
                 # DEBUG: Verbose response logging
-                if 1 or debug:
+                if debug:
                     print(f"\n  RESPONSE:")
                     print(f"  Status Code: {resp.status_code}")
                     print(f"  Response Data:")
@@ -1049,7 +1220,6 @@ class DivoomClient:
                 
                 # Check for errors
                 if data.get('ReturnCode', 0) != 0:
-                    # if debug:
                     print(f"  [ERROR] Server returned error code: {data.get('ReturnCode')}")
                     break
                 
@@ -1078,22 +1248,7 @@ class DivoomClient:
         return all_reports
     
     def fetch_category_files(self, category_id: int, batch_size: int = None, debug: bool = False, **kwargs) -> List[Dict]:
-        """
-        Fetch files from a specific category using GetCategoryFileListV2 endpoint.
-        
-        Args:
-            category_id: ID of the category to fetch files from
-            batch_size: Number of items to fetch per request (default from Config)
-            debug: Enable verbose debugging output (default False)
-            **kwargs: Additional parameters to pass to the API
-            
-        Returns:
-            List of file dictionaries from the category
-            
-        Note:
-            This endpoint is used to retrieve files from a specific category.
-            Use debug=True to see request/response details.
-        """
+        """Fetch files from a specific category using GetCategoryFileListV2 endpoint."""
         if batch_size is None:
             batch_size = Config.BATCH_SIZE
             
@@ -1104,18 +1259,13 @@ class DivoomClient:
         while True:
             end_num = start_num + batch_size - 1
             
-            dimension = Config.FILE_SIZE_FILTER
-            file_type = 5
-            sort = 0
-
-            # Payload for GetCategoryFileListV2
             payload = {
                 "StartNum": start_num,
                 "EndNum": end_num,
                 "Classify": category_id,
-                "FileSize": dimension,
-                "FileType": file_type,
-                "FileSort": sort,
+                "FileSize": Config.FILE_SIZE_FILTER,
+                "FileType": 5,
+                "FileSort": 0,
                 "Version": 12,
                 "RefreshIndex": 0,
                 'Token': self.token,
@@ -1140,9 +1290,9 @@ class DivoomClient:
             try:
                 resp = requests.post(
                     Config.GET_CATEGORY_FILES_ENDPOINT,
-                    headers=Config.HEADERS,
+                    headers=self.HEADERS,
                     json=payload,
-                    timeout=Config.REQUEST_TIMEOUT
+                    timeout=self._request_timeout
                 )
                 
                 # Try to parse JSON response
@@ -1191,9 +1341,9 @@ class DivoomClient:
                 
         print(f"[OK] Fetched {len(all_files)} files from Category ID {category_id}")
         return all_files
-
+    
     def debug_fetch(self, batch_size: int = None, debug: bool = True, **kwargs) -> List[Dict]:
-        
+        """Debug fetch method."""
         if batch_size is None:
             batch_size = Config.BATCH_SIZE
             
@@ -1204,48 +1354,14 @@ class DivoomClient:
         while True:
             end_num = start_num + batch_size - 1
             
-            # CLOUD_GALLERY_SELF(0),
-            # CLOUD_GALLERY_DIVOOM(1),
-            # CLOUD_GALLERY_HOT(2),
-            # CLOUD_GALLERY_NEW(3);
-
-            dimension = 16
-            file_type = 5
-            sort = 0
-
-            # Payload
             payload = {
                 "StartNum": start_num,
                 "EndNum": end_num,
                 'Token': self.token,
                 'UserId': self.user_id,
-                # 'CountryISOCode': 'GB',
-                # 'Classify': 18,
-                # 'Pass': 1,
-                # 'Add': 1,
-                # 'Type': 0,
-                # 'IsAddNew': 1,
-                # 'IsAddRecommend': 1,
-                # 'Good': 1,
-                # 'IsAddGood': 1,
-                # 'Classify': 18,
-                # 'FileSize': dimension,
-                # 'FileType': file_type,
-                # 'FileSort': sort,
-                # 'ShowAllFlag': 1,
                 'GalleryId': 4152005,
-                # 'CoId': 2237731,
-                # 'CommentId': 2237731,
-                # 'GalleryList': [4152005],
                 'MessageId': 2237663,
                 'CommentId': 2237663,
-                # 'Version': 19,
-                # 'OperatorUserId': self.user_id,
-                # 'Operation': 'Add',
-                # # 'Value': 1,
-                # 'Language': 'en',
-                # 'RefreshIndex': 0,
-                # 'SomeOneUserId': self.user_id,
                 'CustomUserId': self.user_id,
                 "GroupId": "I2",
                 "GroupName": "Feedback & Suggestion",
@@ -1270,9 +1386,9 @@ class DivoomClient:
             try:
                 resp = requests.post(
                     Config.MANAGER_GET_REPORT_GALLERY,
-                    headers=Config.HEADERS,
+                    headers=self.HEADERS,
                     json=payload,
-                    timeout=Config.REQUEST_TIMEOUT
+                    timeout=self._request_timeout
                 )
                 
                 # Try to parse JSON response
@@ -1286,7 +1402,7 @@ class DivoomClient:
                     break
                 
                 # DEBUG: Verbose response logging
-                if 1 or debug:
+                if debug:
                     print(f"\n  RESPONSE:")
                     print(f"  Status Code: {resp.status_code}")
                     print(f"  Response Data:")
@@ -1294,7 +1410,6 @@ class DivoomClient:
                 
                 # Check for errors
                 if data.get('ReturnCode', 0) != 0:
-                    # if debug:
                     print(f"  [ERROR] Server returned error code: {data.get('ReturnCode')}")
                     break
                 
@@ -1304,13 +1419,13 @@ class DivoomClient:
                 if not reports:
                     break
                     
-                all_reports.extend(reports)
-                print(f"  Retrieved reports {start_num}-{end_num}. Total collected: {len(all_reports)}")
+                all_data.extend(reports)
+                print(f"  Retrieved reports {start_num}-{end_num}. Total collected: {len(all_data)}")
                 
                 # Stop early if debug mode limit reached
-                if Config.DEBUG_MODE and len(all_reports) >= Config.DEBUG_LIMIT:
+                if Config.DEBUG_MODE and len(all_data) >= Config.DEBUG_LIMIT:
                     print(f"[DEBUG MODE] Reached limit of {Config.DEBUG_LIMIT} items, stopping fetch")
-                    all_reports = all_reports[:Config.DEBUG_LIMIT]
+                    all_data = all_data[:Config.DEBUG_LIMIT]
                     break
                 
                 start_num += batch_size
@@ -1319,6 +1434,5 @@ class DivoomClient:
                 print(f"[ERROR] Request failed: {e}")
                 break
                 
-        print(f"[OK] Fetched {len(all_reports)} reported gallery items")
-        return all_reports
-    
+        print(f"[OK] Fetched {len(all_data)} reported gallery items")
+        return all_data

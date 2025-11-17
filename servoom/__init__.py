@@ -1,6 +1,7 @@
 """servoom package entrypoints."""
 
-from .api_client import APIxoo
-from .pixel_bean import PixelBean
+from .pixel_bean import PixelBean, PixelBeanState
 from .pixel_bean_decoder import PixelBeanDecoder
 from .client import DivoomClient
+
+__all__ = ['PixelBean', 'PixelBeanState', 'PixelBeanDecoder', 'DivoomClient']
