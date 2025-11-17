@@ -9,7 +9,7 @@ import re
 import sys
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 import requests

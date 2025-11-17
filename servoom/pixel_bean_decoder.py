@@ -1,4 +1,15 @@
-import json
+"""
+Supported File Formats for PixelBeanDecoder:
+- ✓ Format 9 (0x09): 16x16 single animation
+- ✓ Format 17 (0x11): Multiple picture format
+- ✓ Format 18 (0x12): 32x32 or 64x64 animation
+- ✓ Format 26 (0x1A): 64x64 or 128x128 animation
+- ✓ Format 31 (0x1F): 128x128 embedded JPEG animation
+- ✓ Format 41 (0x29): JPEG sequence animations at 256x256
+- ✓ Format 42 (0x2A): 256x256 zstd-compressed raw RGB frames
+- ✓ Format 43 (0x2B): 256x256 embedded GIF/WEBP container
+"""
+
 from enum import Enum
 from io import IOBase
 from struct import unpack
