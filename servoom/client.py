@@ -6,9 +6,10 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 import requests
@@ -60,6 +61,29 @@ def sanitize_filename(filename: str) -> str:
         sanitized = sanitized[:max_length]
     
     return sanitized
+
+
+def safe_console_text(value: Any) -> str:
+    """
+    Convert arbitrary text into a form that can be safely printed to the current console.
+    
+    Args:
+        value: Value to render as text.
+    
+    Returns:
+        String compatible with the console encoding, with unencodable characters replaced.
+    """
+    if value is None:
+        text = ""
+    else:
+        text = str(value)
+    
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        return text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+    except Exception:
+        # Fallback to UTF-8 transformations if the console encoding behaves unexpectedly.
+        return text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
 
 
 def append_timestamp(filename: str) -> str:
@@ -296,7 +320,7 @@ class DivoomClient:
             
             # Update PixelBean state
             pixel_bean.update_from_download(output_path)
-            print(f"[OK] Downloaded: {safe_filename}")
+            print(f"[OK] Downloaded: {safe_console_text(safe_filename)}")
             return output_path
             
         except requests.RequestException as e:
@@ -339,7 +363,7 @@ class DivoomClient:
                 frames_data=decoded_bean.frames_data
             )
             
-            print(f"[OK] Decoded: {os.path.basename(file_path)}")
+            print(f"[OK] Decoded: {safe_console_text(os.path.basename(file_path))}")
             return pixel_bean
             
         except Exception as e:
