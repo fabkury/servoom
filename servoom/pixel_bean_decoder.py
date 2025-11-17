@@ -19,6 +19,7 @@ class FileFormat(Enum):
     ANIM_MULTIPLE = 18  # 32x32 or 64x64
     ANIM_MULTIPLE_64 = 26  # 64x64 or 128x128
     ANIM_FORMAT_0x1F = 31  # Unknown format 31 (0x1F)
+    ANIM_FORMAT_0x29 = 41  # Unknown format 41 (0x29) - hex dump stub
     ANIM_CONTAINER_ZSTD = 42  # 256x256: zstd-compressed raw RGB frames
     ANIM_EMBEDDED_IMAGE = 43  # 256x256: embedded GIF/WEBP container
 
@@ -182,7 +183,6 @@ class AnimMultiDecoder(BaseDecoder):
             column_count=column_count,
             frames_data=frames_arrays,
         )
-
 
 
 class Decoder0x1A(BaseDecoder):
@@ -961,7 +961,6 @@ class _Decoder0x1AFrame:
         return img, off
 
 
-
 class PicMultiDecoder(BaseDecoder):
     def decode(self) -> PixelBean:
         row_count, column_count, length = unpack('>BBI', self._fp.read(6))
@@ -1182,6 +1181,121 @@ class AnimEmbeddedImageDecoder(BaseDecoder):
             column_count=column_count,
             frames_data=frames_arrays,
         )
+
+
+class Format41Decoder(BaseDecoder):
+    """Decoder for format 0x29 (41) - JPEG sequence animations at 256x256."""
+
+    _GAP_PREFIX = b'\x02\x00\x00'
+    _RESERVED_HEADER_LEN = 9  # Additional bytes between header and first JPEG
+
+    def decode(self) -> PixelBean:
+        basic_header = self._fp.read(5)
+        if len(basic_header) < 5:
+            print("[ERROR] Format 41: header too short")
+            return None
+
+        total_frames = basic_header[0]
+        speed = (basic_header[1] << 8) | basic_header[2]
+        row_count = basic_header[3] or 1
+        column_count = basic_header[4] or 1
+
+        # Skip reserved/unknown header bytes (observed length: 9 bytes)
+        reserved = self._fp.read(self._RESERVED_HEADER_LEN)
+        if len(reserved) < self._RESERVED_HEADER_LEN:
+            print("[WARN] Format 41: reserved header truncated")
+
+        width = column_count * 16
+        height = row_count * 16
+
+        payload = self._fp.read()
+        if not payload:
+            print("[ERROR] Format 41: empty payload")
+            return None
+
+        jpeg_frames = self._extract_jpeg_frames(payload, total_frames)
+        if not jpeg_frames:
+            print("[ERROR] Format 41: no JPEG frames extracted")
+            return None
+
+        frames_arrays, derived_size = self._decode_jpeg_frames(
+            jpeg_frames, width, height
+        )
+
+        if derived_size and (width == 0 or height == 0):
+            width, height = derived_size
+            row_count = max(1, height // 16)
+            column_count = max(1, width // 16)
+
+        actual_frames = len(frames_arrays)
+        if total_frames and actual_frames != total_frames:
+            print(
+                f"  [WARN] Format 41: header frames {total_frames}, decoded {actual_frames}"
+            )
+
+        return PixelBean(
+            metadata={},
+            total_frames=actual_frames,
+            speed=speed or 50,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
+        )
+
+    def _extract_jpeg_frames(self, data: bytes, expected_frames: int) -> List[bytes]:
+        frames: List[bytes] = []
+        cursor = 0
+        length = len(data)
+        soi = b'\xff\xd8'
+        eoi = b'\xff\xd9'
+
+        while cursor < length:
+            start = data.find(soi, cursor)
+            if start == -1:
+                break
+            end = data.find(eoi, start)
+            if end == -1:
+                break
+            end += 2  # include EOI marker
+            frames.append(data[start:end])
+            cursor = end
+
+            # Skip optional gap metadata if present (5 bytes observed)
+            if cursor + 5 <= length and data[cursor : cursor + 3] == self._GAP_PREFIX:
+                cursor += 5
+
+            if expected_frames and len(frames) >= expected_frames:
+                break
+
+        return frames
+
+    def _decode_jpeg_frames(
+        self, frames: List[bytes], width: int, height: int
+    ) -> Tuple[List[np.ndarray], Tuple[int, int]]:
+        import io
+        from PIL import Image  # type: ignore
+
+        frames_arrays: List[np.ndarray] = []
+        derived_size: Tuple[int, int] = (0, 0)
+        target_size = (width, height) if width and height else None
+
+        for idx, jpeg_data in enumerate(frames):
+            try:
+                with Image.open(io.BytesIO(jpeg_data)) as img:
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    if target_size:
+                        if img.size != target_size:
+                            img = img.resize(target_size, Image.NEAREST)
+                    else:
+                        target_size = img.size
+                        derived_size = img.size
+                    frames_arrays.append(np.array(img, dtype=np.uint8))
+            except Exception as exc:
+                print(f"  [WARN] Format 41: failed to decode frame {idx}: {exc}")
+                break
+
+        return frames_arrays, derived_size
 
 
 class AnimMulti64Decoder(BaseDecoder):
@@ -1531,6 +1645,8 @@ class PixelBeanDecoder(object):
             
             # Compare declared vs decoded frame counts (already printed by decoders)
             return decoded_bean
+        elif file_format_enum == FileFormat.ANIM_FORMAT_0x29:
+            return Format41Decoder(fp).decode()
         elif file_format == FileFormat.ANIM_FORMAT_0x1F:
             return Decoder0x1F(fp).decode()
         elif file_format == FileFormat.ANIM_CONTAINER_ZSTD:

@@ -13,7 +13,7 @@ from PIL import Image, ImageSequence
 
 from servoom import DivoomClient, PixelBean, PixelBeanDecoder
 from servoom.config import Config
-from servoom.client import sanitize_filename
+from servoom.client import sanitize_filename, safe_console_text
 
 
 # ============================================================================
@@ -437,7 +437,7 @@ def test_download_art_by_id(gallery_id: int, output_dir: str = None):
         
         print(f"\n[SUCCESS] Downloaded artwork!")
         print(f"  Gallery ID: {pixel_bean.gallery_id}")
-        print(f"  File Name: {pixel_bean.file_name}")
+        print(f"  File Name: {safe_console_text(pixel_bean.file_name)}")
         print(f"  File Path: {file_path}")
         print(f"  State: {pixel_bean.state.value}")
         
@@ -592,7 +592,7 @@ def fetch_and_decode_artworks(gallery_ids: List[int], output_dir: str = None):
             pixel_bean, file_path = client.download_art_by_id(gallery_id, output_dir=output_dir)
             downloaded_files.append(file_path)
             
-            print(f"  Artwork: {pixel_bean.file_name}")
+            print(f"  Artwork: {safe_console_text(pixel_bean.file_name)}")
             
             # Decode artwork
             client.decode_art(pixel_bean)
@@ -603,7 +603,7 @@ def fetch_and_decode_artworks(gallery_ids: List[int], output_dir: str = None):
             pixel_bean.save_to_webp(webp_path)
             decoded_files.append(webp_path)
             
-            print(f"  Decoded: {webp_filename}")
+            print(f"  Decoded: {safe_console_text(webp_filename)}")
             print(f"  Frames: {pixel_bean.total_frames}, Size: {pixel_bean.width}x{pixel_bean.height}")
             
         except Exception as e:
@@ -632,8 +632,8 @@ def main():
     
     # Fetch and decode specific artworks
     # Focus on 2947079 for debugging
-    artwork_ids = [2947079]  # Temporarily focus on one file
-    fetch_and_decode_artworks(artwork_ids)
+    # artwork_ids = [3981085]  # Temporarily focus on one file
+    # fetch_and_decode_artworks(artwork_ids)
     
     # Example: Decode reference animations
     # decode_reference_animations()
