@@ -642,7 +642,7 @@ def main():
     # test_download_and_decode_my_arts()
     
     # Example: Test download and decode someone's arts
-    # test_download_and_decode_someone_arts(USER_ID_MONSTERS)
+    test_download_and_decode_someone_arts(USER_ID_MONSTERS)
     
     # Example: Decode local reference animations
     # client = DivoomClient(CONFIG_EMAIL, CONFIG_MD5_PASSWORD)
