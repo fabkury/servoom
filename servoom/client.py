@@ -173,6 +173,21 @@ class DivoomClient:
         )
         return resp.json()
     
+    def _should_exclude_hidden(self, item: Dict) -> bool:
+        """
+        Check if item should be excluded based on HideFlag.
+        
+        Args:
+            item: Artwork metadata dictionary
+            
+        Returns:
+            True if item should be excluded (when RESPECT_HIDE_FLAG is True and HideFlag is truthy)
+        """
+        if not Config.RESPECT_HIDE_FLAG:
+            return False
+        hide_flag = item.get('HideFlag')
+        return bool(hide_flag)  # Treats None, 0, False, empty string as False
+    
     def login(self) -> bool:
         """
         Authenticate with Divoom API.
@@ -494,6 +509,9 @@ class DivoomClient:
                 
                 if not arts:
                     break
+                
+                # Filter out hidden artworks
+                arts = [art for art in arts if not self._should_exclude_hidden(art)]
                     
                 all_arts.extend(arts)
                 print(f"  Retrieved arts {start_num}-{end_num}. Total collected: {len(all_arts)}")
@@ -663,6 +681,9 @@ class DivoomClient:
                 
                 if not arts:
                     break
+                
+                # Filter out hidden artworks
+                arts = [art for art in arts if not self._should_exclude_hidden(art)]
                     
                 all_arts.extend(arts)
                 print(f"  Retrieved arts {start_num}-{end_num}. Total collected: {len(all_arts)}")
@@ -950,6 +971,9 @@ class DivoomClient:
                 
                 if not arts:
                     break
+                
+                # Filter out hidden artworks
+                arts = [art for art in arts if not self._should_exclude_hidden(art)]
                     
                 all_arts.extend(arts)
                 print(f"  Retrieved arts {start_num}-{end_num}. Total collected: {len(all_arts)}")
@@ -1134,6 +1158,9 @@ class DivoomClient:
                 
                 if not arts:
                     break
+                
+                # Filter out hidden artworks
+                arts = [art for art in arts if not self._should_exclude_hidden(art)]
                     
                 all_arts.extend(arts)
                 print(f"  Retrieved arts {start_num}-{end_num}. Total collected: {len(all_arts)}")
@@ -1252,6 +1279,9 @@ class DivoomClient:
                 
                 if not reports:
                     break
+                
+                # Filter out hidden artworks
+                reports = [report for report in reports if not self._should_exclude_hidden(report)]
                     
                 all_reports.extend(reports)
                 print(f"  Retrieved reports {start_num}-{end_num}. Total collected: {len(all_reports)}")
@@ -1347,6 +1377,9 @@ class DivoomClient:
                 
                 if not files:
                     break
+                
+                # Filter out hidden artworks
+                files = [file for file in files if not self._should_exclude_hidden(file)]
                     
                 all_files.extend(files)
                 print(f"  Retrieved files {start_num}-{end_num}. Total collected: {len(all_files)}")

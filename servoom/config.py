@@ -59,6 +59,9 @@ class Config:
     DEBUG_MODE = True
     DEBUG_LIMIT = 1000
     
+    # HideFlag filtering
+    RESPECT_HIDE_FLAG = True
+    
     # Output directory
     OUTPUT_DIR = 'out'
     

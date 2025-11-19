@@ -20,6 +20,15 @@ export interface GalleryInfo {
   [key: string]: unknown;
 }
 
+const RESPECT_HIDE_FLAG = true;
+
+function shouldExcludeHidden(item: GalleryInfo): boolean {
+  if (!RESPECT_HIDE_FLAG) {
+    return false;
+  }
+  return Boolean(item.HideFlag); // Treats undefined, null, 0, false as false
+}
+
 const API_BASE = 'https://app.divoom-gz.com';
 const FILE_BASE = 'https://f.divoom-gz.com';
 
@@ -109,7 +118,7 @@ export async function fetchCategoryFiles(
   if (response.ReturnCode !== 0) {
     throw new ApiError('category', response.ReturnCode);
   }
-  return response.FileList ?? [];
+  return (response.FileList ?? []).filter(item => !shouldExcludeHidden(item));
 }
 
 export interface UserSummary {
@@ -165,7 +174,7 @@ export async function fetchUserGallery(
   if (response.ReturnCode !== 0) {
     throw new ApiError('userGallery', response.ReturnCode);
   }
-  return response.FileList ?? [];
+  return (response.FileList ?? []).filter(item => !shouldExcludeHidden(item));
 }
 
 export async function downloadBinary(fileId: string): Promise<Uint8Array> {
