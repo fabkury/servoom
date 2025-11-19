@@ -1,6 +1,8 @@
 # servoom
 
-### Live at: https://servoom.pages.dev/
+### Web user interface at: https://servoom.pages.dev/
+
+### Desktop user interface in https://github.com/tidyhf/Pixoo64-Advanced-Tools
 
 Toolkit for exploring the Divoom Cloud:
  - fetch account data,
@@ -9,13 +11,13 @@ Toolkit for exploring the Divoom Cloud:
 
 ## Overview
 
-`servoom` wraps the Divoom API so you can archive uploads, metadata, and turn undocumented "pixel bean" files into standard image formats.
+`servoom` wraps the Divoom API so you can archive uploads, metadata, and turn undocumented "pixel bean" files into standard image formats such as GIF or lossless WebP.
 
 The project offers a CLI workflow, decoding utilities that understand the formats observed in the Divoom ecosystem, plus helpers for exporting metadata (likes, comments, others) to CSV.
 
 ## Web app / GitHub Pages
 
-A browser-based companion lives in `docs/` and is continuously deployed to Cloudflare R2: https://servoom.pages.dev/. The site mirrors the Python tooling—log in with your credentials, browse categories or users, decode previews, and export WebP/GIF/DAT bundles straight from the browser. To work on it locally, `cd docs && npm install && npm run dev`.
+A browser-based companion lives in `docs/` and is continuously deployed to Cloudflare R2: https://servoom.pages.dev/. The site mirrors a subset of the Python tooling. Log in with your credentials, browse categories or users, decode previews, and export WebP/GIF/DAT bundles straight from the browser. To work on it locally, `cd docs && npm install && npm run dev`. Comments and likes are not available on the web interface. Use https://github.com/tidyhf/Pixoo64-Advanced-Tools for a desktop browser of comments and likes.
 
 ## Features
 - Authenticate against the Divoom cloud API.
