@@ -8,14 +8,12 @@ import flagES from './assets/flags/es.png';
 import flagCN from './assets/flags/cn.png';
 import flagJP from './assets/flags/jp.png';
 import flagRU from './assets/flags/ru.png';
-import type { GalleryInfo, Session, UserSummary } from './lib/divoomApi';
+import type { GalleryInfo, Session } from './lib/divoomApi';
 import {
   ApiError,
   downloadBinary,
-  fetchCategoryFiles,
   fetchUserGallery,
   login,
-  searchUsers,
 } from './lib/divoomApi';
 import { PyodideDecoder, type DecodedBean } from './lib/pyodideDecoder';
 import logger from './lib/logger';
@@ -26,7 +24,6 @@ interface DecodeState {
   bean: DecodedBean;
 }
 
-const DEFAULT_CATEGORY = 18;
 const PAGE_SIZE = 30;
 const API_BATCH_LIMIT = 30;
 const MAX_ITEMS = 500;
@@ -37,15 +34,11 @@ type ZipOptionKey = 'webp' | 'gif' | 'dat';
 
 interface Translation {
   header: { title: string; tagline: string; footer: string; languageLabel: string };
-  panels: { signIn: string; chooseSource: string; results: string; download: string };
-  mode: { category: string; user: string };
+  panels: { signIn: string; fetchArtworks: string; results: string; download: string };
   buttons: {
     signIn: string;
     logout: string;
     fetch: string;
-    search: string;
-    clear: string;
-    select: string;
     decode: string;
     decoding: string;
     raw: string;
@@ -60,31 +53,24 @@ interface Translation {
     previousPage: string;
     nextPage: string;
     loading: string;
-    searching: string;
   };
   labels: {
     email: string;
     password: string;
     passwordHashed: string;
-    category: string;
     start: string;
     count: string;
-    searchUsers: string;
-    selectedUser: string;
-    resultsHeading: string;
     artist: string;
   };
-  placeholders: { searchUsers: string };
-  tooltips: { hash: string; fetchLogin: string; searchLogin: string };
-    messages: {
-      noDataset: string;
-      noItems: string;
-      previewPlaceholder: string;
-      unknownArtist: string;
-      loggedInAs: (email: string) => string;
-    categoryLabel: (categoryId: number, start: number, end: number, count: number) => string;
+  tooltips: { hash: string; fetchLogin: string };
+  messages: {
+    noDataset: string;
+    noItems: string;
+    previewPlaceholder: string;
+    unknownArtist: string;
+    loggedInAs: (email: string) => string;
+    loginRequired: string;
     userLabel: (nickname: string, userId: number, start: number, end: number, count: number) => string;
-    userListEntry: (nickname: string, userId: number) => string;
     previewMeta: (width: number, height: number, frames: number, speed: number) => string;
   };
   table: {
@@ -109,9 +95,6 @@ interface Translation {
   };
   status: {
     cancelFetch: string;
-    categoryStart: string;
-    categoryBatch: (chunk: number, start: number, end: number) => string;
-    categoryCancelled: string;
     userStart: string;
     userBatch: (chunk: number, start: number, end: number) => string;
     userCancelled: string;
@@ -127,8 +110,6 @@ interface Translation {
   errors: {
     contexts: {
       login: string;
-      search: string;
-      category: string;
       user: string;
       decode: string;
       raw: string;
@@ -181,19 +162,13 @@ const translations: Record<Locale, Translation> = {
       email: 'Email',
       password: 'Password or MD5 hash',
       passwordHashed: 'Password is already hashed',
-      category: 'Category',
       start: 'Start #',
       count: 'Number of items',
-      searchUsers: 'Search users',
-      selectedUser: 'Selected user',
-      resultsHeading: 'Results:',
       artist: 'Artist',
     },
-    placeholders: { searchUsers: 'nickname fragment' },
     tooltips: {
       hash: 'Only select "Already hashed" if you know what an MD5 hash is. Otherwise, just enter your password.',
       fetchLogin: 'You need to log in first to fetch artworks',
-      searchLogin: 'You need to log in first to search',
     },
     messages: {
       noDataset: 'No dataset loaded yet.',
@@ -201,11 +176,9 @@ const translations: Record<Locale, Translation> = {
       previewPlaceholder: 'No artwork decoded yet. Click “Decode” on any row to preview it here.',
       unknownArtist: 'Unknown artist',
       loggedInAs: (email) => `Logged in as ${email}`,
-      categoryLabel: (categoryId, start, end, count) =>
-        `Category ${categoryId} · #${start}–#${end} (${count} items)`,
+      loginRequired: 'Please sign in to fetch your artworks.',
       userLabel: (nickname, userId, start, end, count) =>
         `User ${nickname} (#${userId}) · #${start}–#${end} (${count} items)`,
-      userListEntry: (nickname, userId) => `${nickname} (#${userId})`,
       previewMeta: (width, height, frames, speed) =>
         `${width} × ${height} · ${frames} frames @${speed} ms`,
     },
@@ -233,12 +206,9 @@ const translations: Record<Locale, Translation> = {
     },
     status: {
       cancelFetch: 'Cancelling current fetch…',
-      categoryStart: 'Starting category fetch…',
-      categoryBatch: (chunk, start, end) => `Fetching category batch ${chunk}: #${start}–#${end}`,
-      categoryCancelled: 'Category fetch cancelled',
-      userStart: 'Starting user fetch…',
-      userBatch: (chunk, start, end) => `Fetching user batch ${chunk}: #${start}–#${end}`,
-      userCancelled: 'User fetch cancelled',
+      userStart: 'Starting fetch…',
+      userBatch: (chunk, start, end) => `Fetching batch ${chunk}: #${start}–#${end}`,
+      userCancelled: 'Fetch cancelled',
       decoderInit: 'Initializing decoder…',
       downloadBinary: 'Downloading binary payload…',
       zipInit: 'Initializing ZIP export…',
@@ -251,9 +221,7 @@ const translations: Record<Locale, Translation> = {
     errors: {
       contexts: {
         login: 'Sign in',
-        search: 'User search',
-        category: 'Category fetch',
-        user: 'User gallery fetch',
+        user: 'Gallery fetch',
         decode: 'Decode',
         raw: 'Raw download',
         zip: 'ZIP export',
@@ -356,14 +324,9 @@ const translations: Record<Locale, Translation> = {
     },
     status: {
       cancelFetch: 'Cancelando la descarga…',
-      categoryStart: 'Iniciando la descarga de la categoría…',
-      categoryBatch: (chunk, start, end) =>
-        `Descargando lote ${chunk} de la categoría: #${start}-#${end}`,
-      categoryCancelled: 'Descarga de categoría cancelada',
-      userStart: 'Iniciando la descarga del usuario…',
-      userBatch: (chunk, start, end) =>
-        `Descargando lote ${chunk} del usuario: #${start}-#${end}`,
-      userCancelled: 'Descarga de usuario cancelada',
+      userStart: 'Iniciando la descarga…',
+      userBatch: (chunk, start, end) => `Descargando lote ${chunk}: #${start}-#${end}`,
+      userCancelled: 'Descarga cancelada',
       decoderInit: 'Inicializando el decodificador…',
       downloadBinary: 'Descargando datos binarios…',
       zipInit: 'Iniciando la exportación ZIP…',
@@ -376,9 +339,7 @@ const translations: Record<Locale, Translation> = {
     errors: {
       contexts: {
         login: 'Inicio de sesión',
-        search: 'Búsqueda de usuarios',
-        category: 'Descarga de categoría',
-        user: 'Descarga de usuario',
+        user: 'Descarga de galería',
         decode: 'Decodificación',
         raw: 'Descarga bruta',
         zip: 'Exportación ZIP',
@@ -480,14 +441,9 @@ const translations: Record<Locale, Translation> = {
     },
     status: {
       cancelFetch: '正在取消当前获取…',
-      categoryStart: '正在开始分类获取…',
-      categoryBatch: (chunk, start, end) =>
-        `正在获取分类批次 ${chunk}：#${start}–#${end}`,
-      categoryCancelled: '分类获取已取消',
-      userStart: '正在开始用户获取…',
-      userBatch: (chunk, start, end) =>
-        `正在获取用户批次 ${chunk}：#${start}–#${end}`,
-      userCancelled: '用户获取已取消',
+      userStart: '正在开始获取…',
+      userBatch: (chunk, start, end) => `正在获取批次 ${chunk}：#${start}–#${end}`,
+      userCancelled: '获取已取消',
       decoderInit: '正在初始化解码器…',
       downloadBinary: '正在下载二进制数据…',
       zipInit: '正在初始化 ZIP 导出…',
@@ -500,9 +456,7 @@ const translations: Record<Locale, Translation> = {
     errors: {
       contexts: {
         login: '登录',
-        search: '用户搜索',
-        category: '分类获取',
-        user: '用户获取',
+        user: '获取作品',
         decode: '解码',
         raw: '原始下载',
         zip: 'ZIP 导出',
@@ -520,18 +474,14 @@ const translations: Record<Locale, Translation> = {
     },
     panels: {
       signIn: '1. サインイン',
-      chooseSource: '2. 取得元を選択',
+      fetchArtworks: '2. あなたの作品を取得',
       results: '3. 結果',
       download: '4. 選択した作品をダウンロード',
     },
-    mode: { category: 'カテゴリ別', user: 'ユーザー別' },
     buttons: {
       signIn: 'Divoom Cloud にサインイン',
       logout: 'サインアウト',
       fetch: '作品を取得',
-      search: '検索',
-      clear: 'クリア',
-      select: '選択',
       decode: 'デコード',
       decoding: 'デコード中…',
       raw: '生データ',
@@ -546,25 +496,18 @@ const translations: Record<Locale, Translation> = {
       previousPage: '前へ',
       nextPage: '次へ',
       loading: '読み込み中…',
-      searching: '検索中…',
     },
     labels: {
       email: 'メールアドレス',
       password: 'パスワードまたは MD5 ハッシュ',
       passwordHashed: 'パスワードはすでにハッシュ化してある',
-      category: 'カテゴリ',
       start: '開始 #',
       count: '件数',
-      searchUsers: 'ユーザー検索',
-      selectedUser: '選択したユーザー',
-      resultsHeading: '結果：',
       artist: 'アーティスト',
     },
-    placeholders: { searchUsers: 'ニックネームの一部' },
     tooltips: {
       hash: 'MD5 ハッシュを理解している場合のみ「パスワードはすでにハッシュ化してある」を選択してください。',
       fetchLogin: '作品を取得するにはログインが必要です。',
-      searchLogin: '検索するにはログインが必要です。',
     },
     messages: {
       noDataset: 'まだデータセットが読み込まれていません。',
@@ -572,11 +515,9 @@ const translations: Record<Locale, Translation> = {
       previewPlaceholder: 'まだ作品をデコードしていません。「デコード」を押すとここに表示されます。',
       unknownArtist: '不明なアーティスト',
       loggedInAs: (email) => `${email} としてサインイン済み`,
-      categoryLabel: (categoryId, start, end, count) =>
-        `カテゴリ ${categoryId} · #${start}〜#${end}（${count} 件）`,
+      loginRequired: '作品を取得するにはサインインしてください。',
       userLabel: (nickname, userId, start, end, count) =>
         `ユーザー ${nickname} (#${userId}) · #${start}〜#${end}（${count} 件）`,
-      userListEntry: (nickname, userId) => `${nickname} (#${userId})`,
       previewMeta: (width, height, frames, speed) =>
         `${width} × ${height} · ${frames} フレーム @${speed} ms`,
     },
@@ -604,12 +545,9 @@ const translations: Record<Locale, Translation> = {
     },
     status: {
       cancelFetch: '取得をキャンセルしています…',
-      categoryStart: 'カテゴリ取得を開始しています…',
-      categoryBatch: (chunk, start, end) => `カテゴリのバッチ ${chunk} を取得中: #${start}〜#${end}`,
-      categoryCancelled: 'カテゴリ取得をキャンセルしました',
-      userStart: 'ユーザー取得を開始しています…',
-      userBatch: (chunk, start, end) => `ユーザーのバッチ ${chunk} を取得中: #${start}〜#${end}`,
-      userCancelled: 'ユーザー取得をキャンセルしました',
+      userStart: '取得を開始しています…',
+      userBatch: (chunk, start, end) => `バッチ ${chunk} を取得中: #${start}〜#${end}`,
+      userCancelled: '取得をキャンセルしました',
       decoderInit: 'デコーダーを初期化しています…',
       downloadBinary: 'バイナリをダウンロードしています…',
       zipInit: 'ZIP エクスポートを初期化しています…',
@@ -622,9 +560,7 @@ const translations: Record<Locale, Translation> = {
     errors: {
       contexts: {
         login: 'サインイン',
-        search: 'ユーザー検索',
-        category: 'カテゴリ取得',
-        user: 'ユーザー取得',
+        user: '作品取得',
         decode: 'デコード',
         raw: '生データのダウンロード',
         zip: 'ZIP エクスポート',
@@ -642,18 +578,14 @@ const translations: Record<Locale, Translation> = {
     },
     panels: {
       signIn: '1. Войдите',
-      chooseSource: '2. Выберите источник',
+      fetchArtworks: '2. Получить ваши работы',
       results: '3. Результаты',
       download: '4. Скачать выбранное',
     },
-    mode: { category: 'По категории', user: 'По пользователю' },
     buttons: {
       signIn: 'Войти в Divoom Cloud',
       logout: 'Выйти',
       fetch: 'Получить работы',
-      search: 'Поиск',
-      clear: 'Очистить',
-      select: 'Выбрать',
       decode: 'Декодировать',
       decoding: 'Декодирование…',
       raw: 'RAW',
@@ -668,25 +600,18 @@ const translations: Record<Locale, Translation> = {
       previousPage: 'Назад',
       nextPage: 'Вперёд',
       loading: 'Загрузка…',
-      searching: 'Поиск…',
     },
     labels: {
       email: 'Email',
       password: 'Пароль или MD5-хеш',
       passwordHashed: 'Пароль уже захеширован',
-      category: 'Категория',
       start: 'Старт #',
       count: 'Количество элементов',
-      searchUsers: 'Поиск пользователей',
-      selectedUser: 'Выбранный пользователь',
-      resultsHeading: 'Результаты:',
       artist: 'Автор',
     },
-    placeholders: { searchUsers: 'часть ника' },
     tooltips: {
       hash: 'Выбирайте «Пароль уже захеширован» только если понимаете, что такое MD5-хеш. Иначе введите обычный пароль.',
       fetchLogin: 'Сначала войдите, чтобы получать работы.',
-      searchLogin: 'Сначала войдите, чтобы искать.',
     },
     messages: {
       noDataset: 'Данные ещё не загружены.',
@@ -694,11 +619,9 @@ const translations: Record<Locale, Translation> = {
       previewPlaceholder: 'Работы ещё не декодированы. Нажмите «Декодировать» в таблице, чтобы увидеть их здесь.',
       unknownArtist: 'Неизвестный автор',
       loggedInAs: (email) => `Вы вошли как ${email}`,
-      categoryLabel: (categoryId, start, end, count) =>
-        `Категория ${categoryId} · #${start}–#${end} (${count} шт.)`,
+      loginRequired: 'Пожалуйста, войдите, чтобы получить ваши работы.',
       userLabel: (nickname, userId, start, end, count) =>
         `Пользователь ${nickname} (#${userId}) · #${start}–#${end} (${count} шт.)`,
-      userListEntry: (nickname, userId) => `${nickname} (#${userId})`,
       previewMeta: (width, height, frames, speed) =>
         `${width} × ${height} · ${frames} кадров @${speed} мс`,
     },
@@ -726,14 +649,9 @@ const translations: Record<Locale, Translation> = {
     },
     status: {
       cancelFetch: 'Отмена текущей загрузки…',
-      categoryStart: 'Запуск загрузки категории…',
-      categoryBatch: (chunk, start, end) =>
-        `Категория, пакет ${chunk}: #${start}–#${end}`,
-      categoryCancelled: 'Загрузка категории отменена',
-      userStart: 'Запуск загрузки пользователя…',
-      userBatch: (chunk, start, end) =>
-        `Пользователь, пакет ${chunk}: #${start}–#${end}`,
-      userCancelled: 'Загрузка пользователя отменена',
+      userStart: 'Запуск загрузки…',
+      userBatch: (chunk, start, end) => `Пакет ${chunk}: #${start}–#${end}`,
+      userCancelled: 'Загрузка отменена',
       decoderInit: 'Инициализация декодера…',
       downloadBinary: 'Загрузка бинарных данных…',
       zipInit: 'Инициализация экспорта ZIP…',
@@ -746,9 +664,7 @@ const translations: Record<Locale, Translation> = {
     errors: {
       contexts: {
         login: 'Вход',
-        search: 'Поиск пользователей',
-        category: 'Загрузка категории',
-        user: 'Загрузка пользователя',
+        user: 'Загрузка галереи',
         decode: 'Декодирование',
         raw: 'RAW-загрузка',
         zip: 'Экспорт ZIP',
@@ -774,15 +690,10 @@ class CancelledError extends Error {
   }
 }
 
-type FetchContext =
-  | { type: 'category'; categoryId: number; start: number; count: number }
-  | { type: 'user'; userId: number; nickName: string; start: number; count: number };
+type FetchContext = { type: 'user'; userId: number; nickName: string; start: number; count: number };
 
 type StatusDescriptor =
   | { type: 'cancelFetch' }
-  | { type: 'categoryStart' }
-  | { type: 'categoryBatch'; chunk: number; start: number; end: number }
-  | { type: 'categoryCancelled' }
   | { type: 'userStart' }
   | { type: 'userBatch'; chunk: number; start: number; end: number }
   | { type: 'userCancelled' }
@@ -804,33 +715,8 @@ type UiError =
 
 type ItemsLabel =
   | { type: 'none' }
-  | { type: 'category'; categoryId: number; start: number; end: number; count: number }
   | { type: 'user'; nickname: string; userId: number; start: number; end: number; count: number };
 
-const CATEGORY_OPTIONS: Array<{ value: number; label: string }> = [
-  { value: 0, label: 'NEW' },
-  { value: 1, label: 'DEFAULT' },
-  { value: 3, label: 'CHARACTER' },
-  { value: 4, label: 'EMOJI' },
-  { value: 5, label: 'DAILY' },
-  { value: 6, label: 'NATURE' },
-  { value: 7, label: 'SYMBOL' },
-  { value: 8, label: 'PATTERN' },
-  { value: 9, label: 'CREATIVE' },
-  { value: 12, label: 'PHOTO' },
-  { value: 14, label: 'TOP' },
-  { value: 15, label: 'GADGET' },
-  { value: 16, label: 'BUSINESS' },
-  { value: 17, label: 'FESTIVAL' },
-  { value: 18, label: 'RECOMMEND' },
-  { value: 20, label: 'FOLLOW' },
-  { value: 30, label: 'CURRENT_EVENT' },
-  { value: 31, label: 'PLANT' },
-  { value: 32, label: 'ANIMAL' },
-  { value: 33, label: 'PERSON' },
-  { value: 34, label: 'EMOJI_2' },
-  { value: 35, label: 'FOOD' },
-];
 
 function isLocale(value: string): value is Locale {
   return value in translations;
@@ -887,9 +773,6 @@ function resolveArtistName(item: GalleryInfo, t: Translation): string {
 }
 
 function formatItemsLabel(label: ItemsLabel, t: Translation): string {
-  if (label.type === 'category') {
-    return t.messages.categoryLabel(label.categoryId, label.start, label.end, label.count);
-  }
   if (label.type === 'user') {
     return t.messages.userLabel(label.nickname, label.userId, label.start, label.end, label.count);
   }
@@ -900,12 +783,6 @@ function formatStatusMessage(status: StatusDescriptor, t: Translation): string {
   switch (status.type) {
     case 'cancelFetch':
       return t.status.cancelFetch;
-    case 'categoryStart':
-      return t.status.categoryStart;
-    case 'categoryBatch':
-      return t.status.categoryBatch(status.chunk, status.start, status.end);
-    case 'categoryCancelled':
-      return t.status.categoryCancelled;
     case 'userStart':
       return t.status.userStart;
     case 'userBatch':
@@ -1047,8 +924,6 @@ function App() {
   const [passwordIsMd5, setPasswordIsMd5] = useState(false);
   const [loginError, setLoginError] = useState<UiError | null>(null);
 
-  const [categoryId, setCategoryId] = useState(DEFAULT_CATEGORY);
-  const [mode, setMode] = useState<'category' | 'user'>('category');
   const [range, setRange] = useState<{ start: number; count: number }>({ start: 1, count: 30 });
 
   const [items, setItems] = useState<GalleryInfo[]>([]);
@@ -1056,11 +931,6 @@ function App() {
   const [currentPage, setCurrentPage] = useState(0);
   const [selectionMap, setSelectionMap] = useState<Map<number, boolean>>(new Map());
   const [fetchContext, setFetchContext] = useState<FetchContext | null>(null);
-
-  const [userQuery, setUserQuery] = useState('');
-  const [userResults, setUserResults] = useState<UserSummary[]>([]);
-  const [selectedUser, setSelectedUser] = useState<UserSummary | null>(null);
-  const [searchingUsers, setSearchingUsers] = useState(false);
 
   const [itemsLoading, setItemsLoading] = useState(false);
   const [decodeState, setDecodeState] = useState<DecodeState | null>(null);
@@ -1214,23 +1084,12 @@ function App() {
     setDecodeState(null);
     setStatus(null);
     setError(null);
-    setUserResults([]);
-    setSelectedUser(null);
-    setSearchingUsers(false);
   };
 
   const resetDataset = (list: GalleryInfo[], context: FetchContext | null) => {
     const trimmed = list.slice(0, MAX_ITEMS);
     setItems(trimmed);
-    if (context?.type === 'category') {
-      setItemsLabel({
-        type: 'category',
-        categoryId: context.categoryId,
-        start: context.start,
-        end: context.start + context.count - 1,
-        count: trimmed.length,
-      });
-    } else if (context?.type === 'user') {
+    if (context?.type === 'user') {
       setItemsLabel({
         type: 'user',
         nickname: context.nickName,
@@ -1298,82 +1157,8 @@ function App() {
     return collected.slice(0, targetCount);
   };
 
-  const handleFetchCategory = async () => {
+  const handleFetchMyGallery = async () => {
     if (!session) return;
-    setItemsLoading(true);
-    setError(null);
-    const { start, count } = normalizedRange;
-    cancelRef.current = false;
-    setStatus({ type: 'categoryStart' });
-    let clearStatus = true;
-    try {
-      logger.info('Fetching category', { categoryId, start, count });
-      const files = await fetchInBatches(
-        start,
-        count,
-        (chunkStart, chunkEnd) =>
-          fetchCategoryFiles(session, {
-            classify: categoryId,
-            start: chunkStart,
-            end: chunkEnd,
-          }),
-        {
-          onProgress: ({ chunk, start: chunkStart, end: chunkEnd }) => {
-            setStatus({ type: 'categoryBatch', chunk, start: chunkStart, end: chunkEnd });
-          },
-          isCancelled: () => cancelRef.current,
-        },
-      );
-      resetDataset(files, { type: 'category', categoryId, start, count });
-      setStatus(null);
-    } catch (err) {
-      if (err instanceof CancelledError) {
-        setError(null);
-        setStatus({ type: 'categoryCancelled' });
-        logger.info('Category fetch cancelled');
-        clearStatus = false;
-      } else {
-        logger.error('Category fetch failed', err);
-        if (err instanceof ApiError) {
-          setError({ type: 'api', context: 'category', code: err.code });
-        } else {
-          setError({ type: 'generic', message: (err as Error).message });
-        }
-      }
-    } finally {
-      cancelRef.current = false;
-      if (clearStatus) {
-        setStatus(null);
-      }
-      setItemsLoading(false);
-    }
-  };
-
-  const handleSearchUsers = async () => {
-    if (!session || !userQuery.trim()) return;
-    setSearchingUsers(true);
-    setError(null);
-    try {
-      logger.info('Searching users', { query: userQuery });
-      const results = await searchUsers(session, userQuery.trim());
-      setUserResults(results);
-      if (!results.length) {
-        setSelectedUser(null);
-      }
-    } catch (err) {
-      logger.error('User search failed', err);
-      if (err instanceof ApiError) {
-        setError({ type: 'api', context: 'search', code: err.code });
-      } else {
-        setError({ type: 'generic', message: (err as Error).message });
-      }
-    } finally {
-      setSearchingUsers(false);
-    }
-  };
-
-  const handleFetchUserGallery = async () => {
-    if (!session || !selectedUser) return;
     setItemsLoading(true);
     setError(null);
     const { start, count } = normalizedRange;
@@ -1381,11 +1166,11 @@ function App() {
     setStatus({ type: 'userStart' });
     let clearStatus = true;
     try {
-      logger.info('Fetching user gallery', { userId: selectedUser.UserId, start, count });
+      logger.info('Fetching my gallery', { userId: session.userId, start, count });
       const files = await fetchInBatches(
         start,
         count,
-        (chunkStart, chunkEnd) => fetchUserGallery(session, selectedUser.UserId, chunkStart, chunkEnd),
+        (chunkStart, chunkEnd) => fetchUserGallery(session, session.userId, chunkStart, chunkEnd),
         {
           onProgress: ({ chunk, start: chunkStart, end: chunkEnd }) => {
             setStatus({ type: 'userBatch', chunk, start: chunkStart, end: chunkEnd });
@@ -1395,8 +1180,8 @@ function App() {
       );
       resetDataset(files, {
         type: 'user',
-        userId: selectedUser.UserId,
-        nickName: selectedUser.NickName,
+        userId: session.userId,
+        nickName: session.email,
         start,
         count,
       });
@@ -1536,11 +1321,9 @@ function App() {
       logger.info('Preparing ZIP', { selectionCount });
       const zip = new JSZip();
       const folderSegments =
-        fetchContext?.type === 'category' ?
-          ['servoom', `category-${fetchContext.categoryId}`] :
-          fetchContext?.type === 'user' ?
-            ['servoom', `user-${fetchContext.nickName}-${fetchContext.userId}`] :
-            ['servoom', 'selection'];
+        fetchContext?.type === 'user' ?
+          ['servoom', `user-${fetchContext.nickName}-${fetchContext.userId}`] :
+          ['servoom', 'selection'];
       const basePath = folderSegments.map(sanitizeSegment).join('/');
       const datFolder = zipOptions.dat ? zip.folder(`${basePath}/DAT`) : null;
       const webpFolder = zipOptions.webp ? zip.folder(`${basePath}/WebP`) : null;
@@ -1574,11 +1357,9 @@ function App() {
       const anchor = document.createElement('a');
       anchor.href = url;
       const archiveLabel =
-        fetchContext?.type === 'category' ?
-          `category-${fetchContext.categoryId}` :
-          fetchContext?.type === 'user' ?
-            `user-${sanitizeSegment(fetchContext.nickName)}-${fetchContext.userId}` :
-            'selection';
+        fetchContext?.type === 'user' ?
+          `user-${sanitizeSegment(fetchContext.nickName)}-${fetchContext.userId}` :
+          'selection';
       const filename = `${archiveLabel}-${Date.now()}.zip`;
       anchor.download = filename;
       anchor.click();
@@ -1680,196 +1461,61 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>{t.panels.chooseSource}</h2>
-        <div className="mode-toggle">
-          <button
-            type="button"
-            className={mode === 'category' ? 'active' : ''}
-            onClick={() => setMode('category')}
-          >
-            {t.mode.category}
-          </button>
-          <button
-            type="button"
-            className={mode === 'user' ? 'active' : ''}
-            onClick={() => setMode('user')}
-          >
-            {t.mode.user}
-          </button>
-        </div>
-
-        {mode === 'category' && (
-          <div className="mode-panel">
-            <div className="grid-form">
-              <label>
-                {t.labels.category}
-                <select
-                  value={categoryId}
-                  onChange={(e) => {
-                    const value = Number(e.target.value);
-                    setCategoryId(Number.isFinite(value) ? value : DEFAULT_CATEGORY);
-                  }}
-                >
-                  {CATEGORY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label} ({option.value})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t.labels.start}
-                <input
-                  type="number"
-                  value={range.start}
-                  min={1}
-                  onChange={(e) => {
-                    const raw = Number(e.target.value);
-                    setRange((prev) => ({
-                      ...prev,
-                      start: Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1,
-                    }));
-                  }}
-                />
-              </label>
-              <label>
-                {t.labels.count}
-                <input
-                  type="number"
-                  value={Number.isFinite(range.count) ? range.count : ''}
-                  min={1}
-                  onBlur={(e) => {
-                    const raw = Number(e.target.value);
-                    setRange((prev) => ({
-                      ...prev,
-                      count:
-                        Number.isFinite(raw) && raw > 0 ?
-                          Math.min(MAX_ITEMS, Math.floor(raw)) :
-                          1,
-                    }));
-                  }}
-                  onChange={(e) => {
-                    const { value } = e.target;
-                    setRange((prev) => ({
-                      ...prev,
-                      count:
-                        value === '' ?
-                          NaN :
-                          Number.isFinite(Number(value)) ? Number(value) : prev.count,
-                    }));
-                  }}
-                />
-              </label>
-              <button
-                onClick={handleFetchCategory}
-                disabled={!session || itemsLoading}
-                title={!session ? t.tooltips.fetchLogin : undefined}
-              >
-                {itemsLoading ? t.buttons.loading : t.buttons.fetch}
-              </button>
-            </div>
+        <h2>{t.panels.fetchArtworks}</h2>
+        {session ? (
+          <div className="grid-form">
+            <label>
+              {t.labels.start}
+              <input
+                type="number"
+                value={range.start}
+                min={1}
+                onChange={(e) => {
+                  const raw = Number(e.target.value);
+                  setRange((prev) => ({
+                    ...prev,
+                    start: Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1,
+                  }));
+                }}
+              />
+            </label>
+            <label>
+              {t.labels.count}
+              <input
+                type="number"
+                value={Number.isFinite(range.count) ? range.count : ''}
+                min={1}
+                onBlur={(e) => {
+                  const raw = Number(e.target.value);
+                  setRange((prev) => ({
+                    ...prev,
+                    count:
+                      Number.isFinite(raw) && raw > 0 ?
+                        Math.min(MAX_ITEMS, Math.floor(raw)) :
+                        1,
+                  }));
+                }}
+                onChange={(e) => {
+                  const { value } = e.target;
+                  setRange((prev) => ({
+                    ...prev,
+                    count:
+                      value === '' ?
+                        NaN :
+                        Number.isFinite(Number(value)) ? Number(value) : prev.count,
+                  }));
+                }}
+              />
+            </label>
+            <button
+              onClick={handleFetchMyGallery}
+              disabled={itemsLoading}
+            >
+              {itemsLoading ? t.buttons.loading : t.buttons.fetch}
+            </button>
           </div>
-        )}
-
-        {mode === 'user' && (
-          <div className="mode-panel">
-            <div className="grid-form">
-              <label>
-                {t.labels.searchUsers}
-                <input
-                  type="text"
-                  value={userQuery}
-                  placeholder={t.placeholders.searchUsers}
-                  onChange={(e) => setUserQuery(e.target.value)}
-                />
-              </label>
-              <button
-                onClick={handleSearchUsers}
-                disabled={!session || searchingUsers}
-                title={!session ? t.tooltips.searchLogin : undefined}
-              >
-                {searchingUsers ? t.buttons.searching : t.buttons.search}
-              </button>
-            </div>
-            {userResults.length > 0 && (
-              <div className="user-results">
-                <strong>{t.labels.resultsHeading}</strong>
-                <ul>
-                  {userResults.map((user) => (
-                    <li key={user.UserId}>
-                      {t.messages.userListEntry(user.NickName, user.UserId)}{' '}
-                      <button type="button" onClick={() => setSelectedUser(user)}>
-                        {t.buttons.select}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {selectedUser && (
-              <>
-                <div className="selected-user">
-                  {t.labels.selectedUser}:{' '}
-                  <strong>{t.messages.userListEntry(selectedUser.NickName, selectedUser.UserId)}</strong>
-                  <button type="button" onClick={() => setSelectedUser(null)}>
-                    {t.buttons.clear}
-                  </button>
-                </div>
-                <div className="grid-form">
-                  <label>
-                    {t.labels.start}
-                    <input
-                      type="number"
-                      value={range.start}
-                      min={1}
-                      onChange={(e) => {
-                        const raw = Number(e.target.value);
-                        setRange((prev) => ({
-                          ...prev,
-                          start: Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1,
-                        }));
-                      }}
-                    />
-                  </label>
-                  <label>
-                    {t.labels.count}
-                    <input
-                      type="number"
-                      value={Number.isFinite(range.count) ? range.count : ''}
-                      min={1}
-                      onBlur={(e) => {
-                        const raw = Number(e.target.value);
-                        setRange((prev) => ({
-                          ...prev,
-                          count:
-                            Number.isFinite(raw) && raw > 0 ?
-                              Math.min(MAX_ITEMS, Math.floor(raw)) :
-                              1,
-                        }));
-                      }}
-                      onChange={(e) => {
-                        const { value } = e.target;
-                        setRange((prev) => ({
-                          ...prev,
-                          count:
-                            value === '' ?
-                              NaN :
-                              Number.isFinite(Number(value)) ? Number(value) : prev.count,
-                        }));
-                      }}
-                    />
-                  </label>
-                  <button
-                    onClick={handleFetchUserGallery}
-                    disabled={!session || itemsLoading || !selectedUser}
-                    title={!session ? t.tooltips.fetchLogin : undefined}
-                  >
-                    {itemsLoading ? t.buttons.loading : t.buttons.fetch}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+        ) : (
+          <p>{t.messages.loginRequired}</p>
         )}
       </section>
 

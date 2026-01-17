@@ -49,7 +49,7 @@ class Config:
     MD5_PASSWORD = CONFIG_MD5_PASSWORD
     
     # Query parameters
-    BATCH_SIZE = 50
+    BATCH_SIZE = 40
     MAX_RETRIES = 3
     REQUEST_TIMEOUT = 10
     RETRY_DELAY = 1  # seconds
