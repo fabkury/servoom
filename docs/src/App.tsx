@@ -676,7 +676,7 @@ type ZipStatusDescriptor =
   | { type: 'ready' }
   | { type: 'failed' };
 
-type ErrorContext = 'login' | 'search' | 'category' | 'user' | 'decode' | 'raw' | 'zip';
+type ErrorContext = 'login' | 'user' | 'decode' | 'raw' | 'zip';
 
 type UiError =
   | { type: 'api'; context: ErrorContext; code: number }
