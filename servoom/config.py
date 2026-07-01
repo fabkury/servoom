@@ -1,120 +1,37 @@
+"""Client configuration: network knobs only.
+
+Credentials live in :mod:`servoom.credentials`; endpoint paths in :mod:`servoom.const`;
+CSV field mappings in :mod:`servoom.csv_export`. This module is deliberately small.
 """
-Configuration constants for the Divoom API client.
-"""
 
-from credentials import CONFIG_EMAIL, CONFIG_MD5_PASSWORD
+from __future__ import annotations
 
-class Config:
-    """Configuration constants for the Divoom API client."""
-    
-    # API Endpoints
-    # Note: Endpoint URLs are confirmed. Payload parameters need to be configured
-    # in the respective methods (marked with TODO comments).
-    MY_ARTS_ENDPOINT = 'https://app.divoom-gz.com/GetMyUploadListV3'  # ✓ Working
-    MY_LIKES_ENDPOINT = 'https://app.divoom-gz.com/Cloud/GetLikeUserList'  # ✓ Working
-    SOMEONE_INFO_ENDPOINT = 'https://app.divoom-gz.com/GetSomeoneInfoV2'  # ✓ Working
-    SOMEONE_LIST_ENDPOINT = 'https://app.divoom-gz.com/GetSomeoneListV2'  # ✓ Working
-    TAG_INFO_ENDPOINT = 'https://app.divoom-gz.com/Tag/GetTagInfo'  # TODO: Configure params
-    TAG_LIST_ENDPOINT = 'https://app.divoom-gz.com/Tag/GetTagGalleryListV3'  # TODO: Configure params
-    SEARCH_USER_ENDPOINT = 'https://app.divoom-gz.com/SearchUser'  # ✓ Working
-    SEARCH_TAG_ENDPOINT = 'https://app.divoom-gz.com/Tag/SearchTagMoreV2'  # TODO: Configure params
-    SEARCH_GALLERY_ENDPOINT = 'https://app.divoom-gz.com/SearchGalleryV3'  # TODO: Configure params
-    GET_CATEGORY_FILES_ENDPOINT = 'https://app.divoom-gz.com/GetCategoryFileListV2'  # TODO: Configure params
-    GET_COMMENT_LIST_ENDPOINT = 'https://app.divoom-gz.com/Comment/GetCommentListV3' # Working
-    # GET_COMMENT_LIST_ENDPOINT = "https://app.divoom-gz.com/GetCommentListV2" # Working
-    GET_FORUM_URL_ENDPOINT = "https://app.divoom-gz.com/Forum/GetForumUrl" # Working
-    MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Manager/GetReportGallery" # Working
-    
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Manager/GetUserInfo"
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Manager/GetReportCommentList" # 1 Failed
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Manager/GetReportUserList"
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Manager/ShowGallery" # 'GalleryId': causes error code 1
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Manager/AddGood"
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Manager/GetReportMessageGroupList" # 1 Failed
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Manager/PassGallery" ?
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/MessageGroup/GetGroupList" # Working
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Forum/GetList" # Working   
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/GetFollowListV2" # 0, empty list
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Cloud/GalleryInfo" # Working
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Message/GetLikeList" # 0, empty list
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Cloud/GetMatchInfo" # Returns "Paws2025"
-    # MANAGER_GET_REPORT_GALLERY = "https://app.divoom-gz.com/Forum/Like"
-    DEBUG_FETCH_ENDPOINT = "https://app.divoom-gz.com/Cloud/GetMatchInfo"
-    # "GroupId": "I2",
-    # "GroupName": "Feedback & Suggestion",
-    # "ChannelId": "busChannel",
-    
-    # Credentials
-    EMAIL = CONFIG_EMAIL
-    MD5_PASSWORD = CONFIG_MD5_PASSWORD
-    
-    # Query parameters
-    BATCH_SIZE = 40
-    MAX_RETRIES = 3
-    REQUEST_TIMEOUT = 10
-    RETRY_DELAY = 1  # seconds
-    LIKES_REPORT_INTERVAL = 1000
-    
+from dataclasses import dataclass, field
+from typing import Dict
 
-    DEBUG_MODE = True
-    DEBUG_LIMIT = 1000
-    
-    # HideFlag filtering
-    RESPECT_HIDE_FLAG = True
-    
-    # Output directory
-    OUTPUT_DIR = 'out'
-    
-    # HTTP Headers (from apixoo)
-    HEADERS = {
-        'User-Agent': 'Aurabox/3.1.10 (iPad; iOS 14.8; Scale/2.00)',
-        'Content-Type': 'application/json'
-    }
-    
-    # File size filters (bitmap flags)
-    FILE_SIZE_FILTER = 0b1 | 0b10 | 0b100 | 0b1000 | 0b10000 | 0b100000
-    
-    # Field mappings for output
-    FIELD_MAPPINGS = {
-        "IsLike": "Is Like",
-        "GalleryId": "Gallery ID",
-        "UserId": "User ID",
-        "PixelAmbId": "Pixel Amb ID",
-        "PixelAmbName": "Pixel Amb Name",
-        "UserName": "User Name",
-        "UserHeaderId": "User Header ID",
-        "Level": "Level",
-        "RegionId": "Region ID",
-        "CountryISOCode": "Country ISO Code",
-        "IsFollow": "Is Follow",
-        "LikeUTC": "Like UTC",
-        "CommentUTC": "Comment UTC",
-        "AtList": "At List",
-        "ShareCnt": "Share Count",
-        "Content": "Content",
-        "FileTagArray": "File Tag Array",
-        "PrivateFlag": "Private Flag",
-        "CopyrightFlag": "Copyright Flag",
-        "IsDel": "Is Deleted",
-        "CheckConfirm": "Check Confirm",
-        "FileType": "File Type",
-        "LikeCnt": "Like Count",
-        "WatchCnt": "Watch Count",
-        "Classify": "Classify",
-        "FillGameScore": "Fill Game Score",
-        "OriginalGalleryId": "Original Gallery ID",
-        "FileName": "File Name",
-        "FileSize": "File Size",
-        "HideFlag": "Hide Flag",
-        "IsAddNew": "Is Add New",
-        "IsAddRecommend": "Is Add Recommend",
-        "Date": "Creation",
-        "CommentCnt": "Comment Count",
-        "FileId": "File ID",
-        "MusicFileId": "Music File ID",
-        "LayerFileId": "Layer File ID",
-        "FileURL": "File URL",
-        "FillGameIsFinish": "Fill Game Is Finish",
-        "AIFlag": "AI Flag"
-    }
+USER_AGENT = "Aurabox/3.1.10 (iPad; iOS 14.8; Scale/2.00)"
 
+DEFAULT_HEADERS: Dict[str, str] = {
+    "User-Agent": USER_AGENT,
+    "Content-Type": "application/json",
+}
+
+# Bitmap flag selecting which artwork sizes the gallery endpoints return (16..256 px).
+ALL_FILE_SIZES = 0b111111
+
+
+@dataclass(frozen=True)
+class Settings:
+    """Tunable client settings. Immutable; override per-client by constructing a new one."""
+
+    batch_size: int = 40
+    max_retries: int = 3
+    request_timeout: int = 10
+    retry_delay: int = 1  # seconds between retries
+    file_size_filter: int = ALL_FILE_SIZES
+    respect_hide_flag: bool = True
+    headers: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_HEADERS))
+    output_dir: str = "out"
+
+
+DEFAULT_SETTINGS = Settings()

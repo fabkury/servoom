@@ -279,46 +279,79 @@ class PixelBean(object):
             return img.resize((new_width, new_height), Image.NEAREST)
         return img
 
+    def _render_frames(
+        self,
+        scale: Union[int, float] = 1,
+        target_width: int = None,
+        target_height: int = None,
+    ) -> List[Image]:
+        """Render every frame to a PIL image (requires COMPLETE state)."""
+        if self._state != PixelBeanState.COMPLETE:
+            raise ValueError("Animation not decoded yet. Call decode() first.")
+        return [
+            self.get_frame_image(
+                n + 1, scale=scale, target_width=target_width, target_height=target_height
+            )
+            for n in range(self._total_frames)
+        ]
+
     def save_to_webp(
         self,
-        output_path: str,
+        output,
         scale: Union[int, float] = 1,
         target_width: int = None,
         target_height: int = None,
     ) -> None:
         """
-        Convert animation to WebP file.
-        
+        Convert the animation to a lossless WebP.
+
         Args:
-            output_path: Path to save WebP file
-            scale: Optional scale factor
-            target_width: Optional target width
-            target_height: Optional target height
-            
+            output: destination path, or a writable file-like object (e.g. ``BytesIO``).
+            scale: Optional scale factor.
+            target_width: Optional target width.
+            target_height: Optional target height.
+
         Raises:
-            ValueError: If animation not decoded yet
+            ValueError: If animation not decoded yet.
         """
-        if self._state != PixelBeanState.COMPLETE:
-            raise ValueError("Animation not decoded yet. Call decode() first.")
-        
-        webp_frames = []
-
-        for frame_number in range(self._total_frames):
-            img = self.get_frame_image(
-                frame_number + 1,
-                scale=scale,
-                target_width=target_width,
-                target_height=target_height,
-            )
-            webp_frames.append(img)
-
-        # Save to WebP
-        webp_frames[0].save(
-            output_path,
-            append_images=webp_frames[1:],
-            duration=self._speed,
-            save_all=True,
-            loop=0,
-            disposal=0,
-            lossless=True
+        frames = self._render_frames(scale, target_width, target_height)
+        save_kwargs = dict(
+            append_images=frames[1:], duration=self._speed,
+            save_all=True, loop=0, disposal=0, lossless=True,
         )
+        if hasattr(output, "write"):
+            frames[0].save(output, format="WEBP", **save_kwargs)
+        else:
+            frames[0].save(output, **save_kwargs)
+
+    def save_to_gif(
+        self,
+        output,
+        scale: Union[int, float] = 1,
+        target_width: int = None,
+        target_height: int = None,
+    ) -> None:
+        """
+        Convert the animation to an animated GIF.
+
+        Args:
+            output: destination path, or a writable file-like object (e.g. ``BytesIO``).
+            scale: Optional scale factor.
+            target_width: Optional target width.
+            target_height: Optional target height.
+
+        Raises:
+            ValueError: If animation not decoded yet.
+        """
+        frames = [
+            img.convert("P", palette=Image.ADAPTIVE)
+            for img in self._render_frames(scale, target_width, target_height)
+        ]
+        save_kwargs = dict(
+            append_images=frames[1:], duration=self._speed,
+            save_all=True, loop=0, disposal=2,
+        )
+        if hasattr(output, "write"):
+            frames[0].save(output, format="GIF", **save_kwargs)
+        else:
+            frames[0].save(output, **save_kwargs)
