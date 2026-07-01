@@ -1,19 +1,179 @@
-import json
+# AUTO-GENERATED FILE — DO NOT EDIT.
+# Copied verbatim from servoom/pixel_bean_decoder.py by docs/scripts/sync-python.mjs.
+# Edit the source in servoom/, then run:  node docs/scripts/sync-python.mjs
+
+"""
+Supported File Formats for PixelBeanDecoder:
+- ✓ Format 9 (0x09): 16x16 single animation
+- ✓ Format 17 (0x11): Multiple picture format
+- ✓ Format 18 (0x12): 32x32 or 64x64 animation
+- ✓ Format 26 (0x1A): 64x64 or 128x128 animation
+- ✓ Format 31 (0x1F): 128x128 embedded JPEG animation
+- ✓ Format 41 (0x29): JPEG sequence animations at 256x256
+- ✓ Format 42 (0x2A): 256x256 zstd-compressed raw RGB frames
+- ✓ Format 43 (0x2B): 256x256 embedded GIF/WEBP container
+
+NOTE: this module is the single source of truth for the browser decoder too. It is copied
+verbatim into ``docs/src/python/`` by ``docs/scripts/sync-python.mjs`` and loaded as a flat
+module in Pyodide, so it uses stdlib ``logging`` (not ``servoom.logging``) and a
+try/except import for :mod:`pixel_bean` — keep it dependency-light and self-contained.
+"""
+
+import io
+import logging
 from enum import Enum
 from io import IOBase
 from struct import unpack
+from typing import List, Tuple
 
 import numpy as np
 import lzallright
 from Crypto.Cipher import AES
-import io
-from typing import List, Tuple
 from PIL import Image
 
 try:
     from .pixel_bean import PixelBean
-except ImportError:  # Running outside the package layout
+except ImportError:  # flat layout (e.g. Pyodide virtual FS)
     from pixel_bean import PixelBean
+
+logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# Shared decode helpers (previously copy-pasted across decoder classes)
+# --------------------------------------------------------------------------- #
+def _frames_from_rgb(frames_rgb, width: int, height: int) -> List[np.ndarray]:
+    """Build ``(H, W, 3)`` uint8 arrays from raw row-major RGB frame buffers.
+
+    Buffers shorter than ``width*height*3`` are zero-padded (missing pixels -> black);
+    longer buffers are truncated. Replaces four hand-rolled per-pixel loops.
+    """
+    frame_size = width * height * 3
+    arrays = []
+    for rgb in frames_rgb:
+        buf = bytes(rgb)
+        if len(buf) < frame_size:
+            buf += b"\x00" * (frame_size - len(buf))
+        elif len(buf) > frame_size:
+            buf = buf[:frame_size]
+        arrays.append(np.frombuffer(buf, dtype=np.uint8).reshape(height, width, 3).copy())
+    return arrays
+
+
+def _get_dot_info(data, pos, pixel_idx, bits):
+    """Extract a palette index from the 0x0C bit-packed pixel stream (bounds-checked)."""
+    if pos >= len(data):
+        return -1
+
+    uVar2 = bits * pixel_idx & 7
+    uVar4 = bits * pixel_idx * 65536 >> 0x13
+
+    if bits < 9:
+        uVar3 = bits + uVar2
+        if uVar3 < 9:
+            idx = pos + uVar4
+            if idx >= len(data):
+                return -1
+            uVar6 = data[idx] << (8 - uVar3 & 0xFF) & 0xFF
+            uVar6 >>= uVar2 + (8 - uVar3) & 0xFF
+        else:
+            idx1 = pos + uVar4 + 1
+            idx0 = pos + uVar4
+            if idx1 >= len(data) or idx0 >= len(data):
+                return -1
+            uVar6 = data[idx1] << (0x10 - uVar3 & 0xFF) & 0xFF
+            uVar6 >>= 0x10 - uVar3 & 0xFF
+            uVar6 &= 0xFFFF
+            uVar6 <<= 8 - uVar2 & 0xFF
+            uVar6 |= data[idx0] >> uVar2
+    else:
+        raise Exception('(2) Unimplemented')
+
+    return uVar6
+
+
+def _decode_0x0c_frame(data, num_pixels: int = 4096):
+    """Decode one 0x0C (quantized-palette) frame to raw RGB bytes (bounds-checked)."""
+    # Solid-color fast path: AA 0B 00 F4 01 0C 01 00 R G B
+    if len(data) == 11 and data[0] == 0xAA and data[1] == 0x0B and data[2] == 0x00 and \
+       data[3] == 0xF4 and data[4] == 0x01 and data[5] == 0x0C and data[6] == 0x01 and data[7] == 0x00:
+        return bytearray([data[8], data[9], data[10]] * num_pixels)
+
+    if len(data) < 8:
+        raise Exception(f'Frame data too short: {len(data)} bytes')
+
+    output = [None] * (num_pixels * 3)
+    encrypt_type = data[5]
+    if encrypt_type != 0x0C:
+        raise Exception(f'Expected 0x0C encryption, got 0x{encrypt_type:02X}')
+
+    uVar13 = data[6]
+    iVar11 = uVar13 * 3
+
+    if uVar13 == 0:
+        bVar9 = 8
+        iVar11 = 768  # Fix corrupted frame
+    else:
+        bVar9 = 0xFF
+        bVar15 = 1
+        while True:
+            if (uVar13 & 1) != 0:
+                bVar18 = bVar9 == 0xFF
+                bVar9 = bVar15
+                if bVar18:
+                    bVar9 = bVar15 - 1
+
+            uVar14 = uVar13 & 0xFFFE
+            bVar15 = bVar15 + 1
+            uVar13 = uVar14 >> 1
+            if uVar14 == 0:
+                break
+
+    pixel_idx = 0
+    pos = (iVar11 + 8) & 0xFFFF
+
+    while True:
+        color_index = _get_dot_info(data, pos, pixel_idx & 0xFFFF, bVar9)
+        target_pos = pixel_idx * 3
+        if color_index == -1:  # transparent -> black
+            output[target_pos] = output[target_pos + 1] = output[target_pos + 2] = 0
+        else:
+            color_pos = 8 + color_index * 3
+            if color_pos + 2 < len(data):
+                output[target_pos] = data[color_pos]
+                output[target_pos + 1] = data[color_pos + 1]
+                output[target_pos + 2] = data[color_pos + 2]
+            else:  # out of bounds -> black
+                output[target_pos] = output[target_pos + 1] = output[target_pos + 2] = 0
+
+        pixel_idx += 1
+        if pixel_idx == num_pixels:
+            break
+
+    return bytearray(output)
+
+
+def _composite_image_sequence(im, expected_size) -> List[bytes]:
+    """Composite a PIL animation (GIF/WEBP) over white, frame-by-frame, to RGB bytes."""
+    from PIL import Image, ImageSequence
+
+    palette = im.getpalette() if im.mode == 'P' else None
+    frames: List[bytes] = []
+    composed = None
+    for frame in ImageSequence.Iterator(im):
+        if frame.mode == 'P' and not frame.getpalette() and palette:
+            frame.putpalette(palette)
+        base = Image.new('RGBA', im.size, (255, 255, 255, 255))
+        if composed is not None:
+            base.paste(composed)
+        rgba = frame.convert('RGBA')
+        base.paste(rgba, (0, 0), rgba)
+        composed = base
+        rgb = base.convert('RGB')
+        if rgb.size != expected_size:
+            rgb = rgb.resize(expected_size, Image.NEAREST)
+        frames.append(rgb.tobytes())
+    return frames
 
 
 class FileFormat(Enum):
@@ -22,7 +182,7 @@ class FileFormat(Enum):
     ANIM_MULTIPLE = 18  # 32x32 or 64x64
     ANIM_MULTIPLE_64 = 26  # 64x64 or 128x128
     ANIM_FORMAT_0x1F = 31  # Unknown format 31 (0x1F)
-    ANIM_FORMAT_0x29 = 41  # Unknown format 41 (0x29) - JPEG sequence animations at 256x256
+    ANIM_FORMAT_0x29 = 41  # Unknown format 41 (0x29) - hex dump stub
     ANIM_CONTAINER_ZSTD = 42  # 256x256: zstd-compressed raw RGB frames
     ANIM_EMBEDDED_IMAGE = 43  # 256x256: embedded GIF/WEBP container
 
@@ -35,8 +195,8 @@ class BaseDecoder(object):
         self._fp = fp
         self._lzo = lzallright.LZOCompressor()
 
-    def decode() -> PixelBean:
-        raise Exception('Not implemented!')
+    def decode(self) -> PixelBean:
+        raise NotImplementedError
 
     def _decrypt_aes(self, data):
         cipher = AES.new(
@@ -119,23 +279,27 @@ class AnimSingleDecoder(BaseDecoder):
 
         # Decrypt AES
         decrypted_data = self._decrypt_aes(encrypted_data)
-        total_frames = len(decrypted_data) // 768
-
+        decrypted_size = len(decrypted_data)
+        
+        total_frames = decrypted_size // 768
+        
         # Parse frames data
         frames_data = []
         for i in range(total_frames):
             pos = i * 768
-            frames_data.append(decrypted_data[pos : pos + 768])
+            frame_bytes = decrypted_data[pos : pos + 768]
+            frames_data.append(frame_bytes)
 
         # Convert to numpy arrays
         frames_arrays = self._compact(frames_data, total_frames)
 
         return PixelBean(
-            total_frames,
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=total_frames,
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
@@ -175,117 +339,23 @@ class AnimMultiDecoder(BaseDecoder):
         )
 
         return PixelBean(
-            total_frames,
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=total_frames,
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
-
 
 
 class Decoder0x1A(BaseDecoder):
     """Decoder for format 0x1A (26 decimal) - 64x64 and 128x128 animations with multiple encryption types."""
-    
-    def _get_dot_info(self, data, pos, pixel_idx, bVar9):
-        """Extract pixel color index from compressed data (for 0x0C encryption)."""
-        if pos >= len(data):
-            return -1
 
-        uVar2 = bVar9 * pixel_idx & 7
-        uVar4 = bVar9 * pixel_idx * 65536 >> 0x13
-
-        if bVar9 < 9:
-            uVar3 = bVar9 + uVar2
-            if uVar3 < 9:
-                idx = pos + uVar4
-                if idx >= len(data):
-                    return -1
-                uVar6 = data[idx] << (8 - uVar3 & 0xFF) & 0xFF
-                uVar6 >>= uVar2 + (8 - uVar3) & 0xFF
-            else:
-                idx1 = pos + uVar4 + 1
-                idx0 = pos + uVar4
-                if idx1 >= len(data) or idx0 >= len(data):
-                    return -1
-                uVar6 = data[idx1] << (0x10 - uVar3 & 0xFF) & 0xFF
-                uVar6 >>= 0x10 - uVar3 & 0xFF
-                uVar6 &= 0xFFFF
-                uVar6 <<= 8 - uVar2 & 0xFF
-                uVar6 |= data[idx0] >> uVar2
-        else:
-            raise Exception('(2) Unimplemented')
-
-        return uVar6
-
-    def _decode_frame_data_0x0c(self, data):
-        """Decode a single frame with 0x0C encryption type."""
-        if len(data) < 8:
-            raise Exception(f'Frame data too short: {len(data)} bytes')
-        
-        output = [None] * 12288  # 64x64 * 3 channels
-        encrypt_type = data[5]
-        if encrypt_type != 0x0C:
-            raise Exception(f'Expected 0x0C encryption, got 0x{encrypt_type:02X}')
-
-        uVar13 = data[6]
-        iVar11 = uVar13 * 3
-
-        if uVar13 == 0:
-            bVar9 = 8
-            iVar11 = 768  # Fix corrupted frame
-        else:
-            bVar9 = 0xFF
-            bVar15 = 1
-            while True:
-                if (uVar13 & 1) != 0:
-                    bVar18 = bVar9 == 0xFF
-                    bVar9 = bVar15
-                    if bVar18:
-                        bVar9 = bVar15 - 1
-
-                uVar14 = uVar13 & 0xFFFE
-                bVar15 = bVar15 + 1
-                uVar13 = uVar14 >> 1
-                if uVar14 == 0:
-                    break
-
-        pixel_idx = 0
-        pos = (iVar11 + 8) & 0xFFFF
-
-        while True:
-            color_index = self._get_dot_info(data, pos, pixel_idx & 0xFFFF, bVar9)
-
-            target_pos = pixel_idx * 3
-            if color_index == -1:  # transparent -> black
-                output[target_pos] = 0
-                output[target_pos + 1] = 0
-                output[target_pos + 2] = 0
-            else:
-                color_pos = 8 + color_index * 3
-                
-                # Bounds check for palette access
-                if color_pos + 2 < len(data):
-                    output[target_pos] = data[color_pos]
-                    output[target_pos + 1] = data[color_pos + 1]
-                    output[target_pos + 2] = data[color_pos + 2]
-                else:
-                    # Out of bounds - use black
-                    output[target_pos] = 0
-                    output[target_pos + 1] = 0 
-                    output[target_pos + 2] = 0
-
-            pixel_idx += 1
-            if pixel_idx == 4096:  # 64x64
-                break
-
-        return bytearray(output)
-    
     def decode(self) -> PixelBean:
         """Decode the animation file and return a PixelBean."""
         # Read container header (5 bytes)
         header_bytes = self._fp.read(5)
-        total_frames = header_bytes[0]
+        total_frames_declared = header_bytes[0]
         speed = unpack('>H', header_bytes[1:3])[0]
         row_count = header_bytes[3]
         column_count = header_bytes[4]
@@ -320,7 +390,7 @@ class Decoder0x1A(BaseDecoder):
         if uses_0x0c_format:
             # Decode 0x0C format frames (AnimMulti64Decoder logic)
             pos = 0
-            for frame_idx in range(total_frames):
+            for frame_idx in range(total_frames_declared):
                 if pos + 4 > len(all_frame_data):
                     break
                 
@@ -336,7 +406,7 @@ class Decoder0x1A(BaseDecoder):
                     frame_data = all_frame_data[pos:pos + size]
                     
                     # Decode the frame using 0x0C decoder
-                    decoded_frame = self._decode_frame_data_0x0c(frame_data)
+                    decoded_frame = _decode_0x0c_frame(frame_data)
                     frames_rgb.append(decoded_frame)
                     
                     pos += size
@@ -354,7 +424,7 @@ class Decoder0x1A(BaseDecoder):
             pos = 0
             shared_palette: List[Tuple[int, int, int]] = []
             
-            for frame_idx in range(total_frames):
+            for frame_idx in range(total_frames_declared):
                 if pos >= len(all_frame_data):
                     break
                 
@@ -437,49 +507,23 @@ class Decoder0x1A(BaseDecoder):
                     except:
                         break
         
-        # Build numpy arrays from decoded RGB data
-        frames_arrays = self._build_frames_arrays(frames_rgb, width, height)
-        
+        frames_decoded = len(frames_rgb)
+
+        # Compare declared vs decoded frame counts
+        if total_frames_declared != frames_decoded:
+            logger.warning('Frame count mismatch: declared %d, decoded %d',
+                           total_frames_declared, frames_decoded)
+
+        frames_arrays = _frames_from_rgb(frames_rgb, width, height)
+
         return PixelBean(
-            len(frames_rgb),
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=frames_decoded,  # Use actual decoded count
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
-    
-    def _build_frames_arrays(self, frames_rgb, width, height):
-        """
-        Build numpy arrays from raw RGB frames.
-        
-        Args:
-            frames_rgb: List of raw RGB frame data (bytes)
-            width: Frame width
-            height: Frame height
-            
-        Returns:
-            List of numpy arrays, each with shape (height, width, 3)
-        """
-        frames_arrays = []
-        
-        for frame_idx, rgb_bytes in enumerate(frames_rgb):
-            # Create numpy array for this frame (height, width, 3)
-            frame_array = np.zeros((height, width, 3), dtype=np.uint8)
-            
-            pos = 0
-            for y in range(height):
-                for x in range(width):
-                    r = rgb_bytes[pos]
-                    g = rgb_bytes[pos + 1]
-                    b = rgb_bytes[pos + 2]
-                    pos += 3
-                    
-                    # Store RGB values directly in numpy array
-                    frame_array[y, x] = [r, g, b]
-            
-            frames_arrays.append(frame_array)
-        
-        return frames_arrays
 
 
 class _Decoder0x1AFrame:
@@ -940,7 +984,6 @@ class _Decoder0x1AFrame:
         return img, off
 
 
-
 class PicMultiDecoder(BaseDecoder):
     def decode(self) -> PixelBean:
         row_count, column_count, length = unpack('>BBI', self._fp.read(6))
@@ -961,48 +1004,16 @@ class PicMultiDecoder(BaseDecoder):
         )
         
         return PixelBean(
-            total_frames,
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=total_frames,
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
 class AnimZstdRawRGBDecoder(BaseDecoder):
-    def _build_frames_arrays(self, frames_rgb, width, height):
-        """
-        Build numpy arrays from raw RGB frames.
-        
-        Args:
-            frames_rgb: List of raw RGB frame data (bytes)
-            width: Frame width
-            height: Frame height
-            
-        Returns:
-            List of numpy arrays, each with shape (height, width, 3)
-        """
-        frames_arrays = []
-        
-        for frame_idx, rgb_bytes in enumerate(frames_rgb):
-            # Create numpy array for this frame (height, width, 3)
-            frame_array = np.zeros((height, width, 3), dtype=np.uint8)
-            
-            pos = 0
-            for y in range(height):
-                for x in range(width):
-                    r = rgb_bytes[pos]
-                    g = rgb_bytes[pos + 1]
-                    b = rgb_bytes[pos + 2]
-                    pos += 3
-                    
-                    # Store RGB values directly in numpy array
-                    frame_array[y, x] = [r, g, b]
-            
-            frames_arrays.append(frame_array)
-        
-        return frames_arrays
-
     def decode(self) -> PixelBean:
         total_frames, speed, row_count, column_count = unpack('>BHBB', self._fp.read(5))
         width = 16 * column_count
@@ -1033,130 +1044,47 @@ class AnimZstdRawRGBDecoder(BaseDecoder):
         for _ in range(target_frames):
             frames_rgb.append(decomp[pos : pos + frame_bytes])
             pos += frame_bytes
-        frames_arrays = self._build_frames_arrays(frames_rgb, width, height)
+        frames_arrays = _frames_from_rgb(frames_rgb, width, height)
         return PixelBean(
-            target_frames,
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=target_frames,
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
 class AnimEmbeddedImageDecoder(BaseDecoder):
     def _extract_frames_rgb(self, data, width, height):
-        # Try embedded GIF
-        try:
-            from PIL import Image, ImageSequence
-        except Exception:
-            raise Exception('Format 43 requires Pillow')
+        """Locate the embedded GIF/WEBP container and composite its frames to RGB bytes."""
         expected = (width, height)
-        def _compose_gif(gif_bytes):
-            frames = []
-            with Image.open(io.BytesIO(gif_bytes)) as im:  # type: ignore
-                palette = im.getpalette()
-                composed = None
-                for frame in ImageSequence.Iterator(im):
-                    if frame.mode == 'P' and not frame.getpalette() and palette:
-                        frame.putpalette(palette)
-                    base = Image.new('RGBA', im.size, (255, 255, 255, 255))
-                    if composed is not None:
-                        base.paste(composed)
-                    rgba = frame.convert('RGBA')
-                    base.paste(rgba, (0, 0), rgba)
-                    composed = base
-                    rgb = base.convert('RGB')
-                    if rgb.size != expected:
-                        rgb = rgb.resize(expected, Image.NEAREST)
-                    frames.append(rgb.tobytes())
-            return frames
-        # GIF signature
-        off = data.find(b'GIF8')
-        if off != -1:
-            return _compose_gif(data[off:])
-        # WEBP inside RIFF
-        offw = data.find(b'RIFF')
-        if offw != -1 and data[offw + 8 : offw + 12] == b'WEBP':
-            frames = []
-            with Image.open(io.BytesIO(data[offw:])) as im:  # type: ignore
-                composed = None
-                for frame in ImageSequence.Iterator(im):
-                    base = Image.new('RGBA', im.size, (255, 255, 255, 255))
-                    if composed is not None:
-                        base.paste(composed)
-                    rgba = frame.convert('RGBA')
-                    base.paste(rgba, (0, 0), rgba)
-                    composed = base
-                    rgb = base.convert('RGB')
-                    if rgb.size != expected:
-                        rgb = rgb.resize(expected, Image.NEAREST)
-                    frames.append(rgb.tobytes())
-            return frames
-        # Last resort: let Pillow sniff container
-        frames = []
-        with Image.open(io.BytesIO(data)) as im:  # type: ignore
-            composed = None
-            for frame in ImageSequence.Iterator(im):
-                base = Image.new('RGBA', im.size, (255, 255, 255, 255))
-                if composed is not None:
-                    base.paste(composed)
-                rgba = frame.convert('RGBA')
-                base.paste(rgba, (0, 0), rgba)
-                composed = base
-                rgb = base.convert('RGB')
-                if rgb.size != expected:
-                    rgb = rgb.resize(expected, Image.NEAREST)
-                frames.append(rgb.tobytes())
-        return frames
-
-    def _build_frames_arrays(self, frames_rgb, width, height):
-        """
-        Build numpy arrays from raw RGB frames.
-        
-        Args:
-            frames_rgb: List of raw RGB frame data (bytes)
-            width: Frame width
-            height: Frame height
-            
-        Returns:
-            List of numpy arrays, each with shape (height, width, 3)
-        """
-        frames_arrays = []
-        
-        for frame_idx, rgb_bytes in enumerate(frames_rgb):
-            # Create numpy array for this frame (height, width, 3)
-            frame_array = np.zeros((height, width, 3), dtype=np.uint8)
-            
-            pos = 0
-            for y in range(height):
-                for x in range(width):
-                    r = rgb_bytes[pos]
-                    g = rgb_bytes[pos + 1]
-                    b = rgb_bytes[pos + 2]
-                    pos += 3
-                    
-                    # Store RGB values directly in numpy array
-                    frame_array[y, x] = [r, g, b]
-            
-            frames_arrays.append(frame_array)
-        
-        return frames_arrays
+        gif_off = data.find(b'GIF8')
+        if gif_off != -1:
+            payload = data[gif_off:]
+        else:
+            webp_off = data.find(b'RIFF')
+            if webp_off != -1 and data[webp_off + 8 : webp_off + 12] == b'WEBP':
+                payload = data[webp_off:]
+            else:
+                payload = data  # last resort: let Pillow sniff the container
+        with Image.open(io.BytesIO(payload)) as im:
+            return _composite_image_sequence(im, expected)
 
     def decode(self) -> PixelBean:
-        import io  # local to avoid global import if unused
-        from PIL import Image, ImageSequence  # type: ignore
         total_frames, speed, row_count, column_count = unpack('>BHBB', self._fp.read(5))
         width = 16 * column_count
         height = 16 * row_count
         data = self._fp.read()
         frames_rgb = self._extract_frames_rgb(data, width, height)
-        frames_arrays = self._build_frames_arrays(frames_rgb, width, height)
+        frames_arrays = _frames_from_rgb(frames_rgb, width, height)
         return PixelBean(
-            len(frames_rgb),
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=len(frames_rgb),
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
@@ -1169,7 +1097,7 @@ class Format41Decoder(BaseDecoder):
     def decode(self) -> PixelBean:
         basic_header = self._fp.read(5)
         if len(basic_header) < 5:
-            print("[ERROR] Format 41: header too short")
+            logger.error("Format 41: header too short")
             return None
 
         total_frames = basic_header[0]
@@ -1180,19 +1108,19 @@ class Format41Decoder(BaseDecoder):
         # Skip reserved/unknown header bytes (observed length: 9 bytes)
         reserved = self._fp.read(self._RESERVED_HEADER_LEN)
         if len(reserved) < self._RESERVED_HEADER_LEN:
-            print("[WARN] Format 41: reserved header truncated")
+            logger.warning("Format 41: reserved header truncated")
 
         width = column_count * 16
         height = row_count * 16
 
         payload = self._fp.read()
         if not payload:
-            print("[ERROR] Format 41: empty payload")
+            logger.error("Format 41: empty payload")
             return None
 
         jpeg_frames = self._extract_jpeg_frames(payload, total_frames)
         if not jpeg_frames:
-            print("[ERROR] Format 41: no JPEG frames extracted")
+            logger.error("Format 41: no JPEG frames extracted")
             return None
 
         frames_arrays, derived_size = self._decode_jpeg_frames(
@@ -1206,16 +1134,16 @@ class Format41Decoder(BaseDecoder):
 
         actual_frames = len(frames_arrays)
         if total_frames and actual_frames != total_frames:
-            print(
-                f"  [WARN] Format 41: header frames {total_frames}, decoded {actual_frames}"
-            )
+            logger.warning("Format 41: header frames %d, decoded %d",
+                           total_frames, actual_frames)
 
         return PixelBean(
-            actual_frames,
-            speed or 50,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},
+            total_frames=actual_frames,
+            speed=speed or 50,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
     def _extract_jpeg_frames(self, data: bytes, expected_frames: int) -> List[bytes]:
@@ -1268,7 +1196,7 @@ class Format41Decoder(BaseDecoder):
                         derived_size = img.size
                     frames_arrays.append(np.array(img, dtype=np.uint8))
             except Exception as exc:
-                print(f"  [WARN] Format 41: failed to decode frame {idx}: {exc}")
+                logger.warning("Format 41: failed to decode frame %d: %s", idx, exc)
                 break
 
         return frames_arrays, derived_size
@@ -1276,105 +1204,44 @@ class Format41Decoder(BaseDecoder):
 
 class AnimMulti64Decoder(BaseDecoder):
     """Decoder specifically for 64x64 animations with 0x0C encryption (format 26)."""
-    
-    def _get_dot_info(self, data, pos, pixel_idx, bVar9):
-        """Extract pixel color index from compressed data."""
-        if not data[pos:]:
-            return -1
-
-        uVar2 = bVar9 * pixel_idx & 7
-        uVar4 = bVar9 * pixel_idx * 65536 >> 0x13
-
-        if bVar9 < 9:
-            uVar3 = bVar9 + uVar2
-            if uVar3 < 9:
-                uVar6 = data[pos + uVar4] << (8 - uVar3 & 0xFF) & 0xFF
-                uVar6 >>= uVar2 + (8 - uVar3) & 0xFF
-            else:
-                uVar6 = data[pos + uVar4 + 1] << (0x10 - uVar3 & 0xFF) & 0xFF
-                uVar6 >>= 0x10 - uVar3 & 0xFF
-                uVar6 &= 0xFFFF
-                uVar6 <<= 8 - uVar2 & 0xFF
-                uVar6 |= data[pos + uVar4] >> uVar2
-        else:
-            raise Exception('(2) Unimplemented')
-
-        return uVar6
-
-    def _decode_frame_data(self, data):
-        """Decode a single 64x64 frame with 0x0C encryption."""
-        output = [None] * 12288  # 64x64 * 3 channels
-        encrypt_type = data[5]
-        if encrypt_type != 0x0C:
-            raise Exception(f'Unsupported encryption type: 0x{encrypt_type:02X}')
-
-        uVar13 = data[6]
-        iVar11 = uVar13 * 3
-
-        if uVar13 == 0:
-            bVar9 = 8
-            iVar11 = 768  # Fix corrupted frame
-        else:
-            bVar9 = 0xFF
-            bVar15 = 1
-            while True:
-                if (uVar13 & 1) != 0:
-                    bVar18 = bVar9 == 0xFF
-                    bVar9 = bVar15
-                    if bVar18:
-                        bVar9 = bVar15 - 1
-
-                uVar14 = uVar13 & 0xFFFE
-                bVar15 = bVar15 + 1
-                uVar13 = uVar14 >> 1
-                if uVar14 == 0:
-                    break
-
-        pixel_idx = 0
-        pos = (iVar11 + 8) & 0xFFFF
-
-        while True:
-            color_index = self._get_dot_info(data, pos, pixel_idx & 0xFFFF, bVar9)
-
-            target_pos = pixel_idx * 3
-            if color_index == -1:  # transparent -> black
-                output[target_pos] = 0
-                output[target_pos + 1] = 0
-                output[target_pos + 2] = 0
-            else:
-                color_pos = 8 + color_index * 3
-
-                output[target_pos] = data[color_pos]
-                output[target_pos + 1] = data[color_pos + 1]
-                output[target_pos + 2] = data[color_pos + 2]
-
-            pixel_idx += 1
-            if pixel_idx == 4096:  # 64x64
-                break
-
-        return bytearray(output)
 
     def decode(self) -> PixelBean:
         """Decode 64x64 animation and return a PixelBean."""
-        total_frames, speed, row_count, column_count = unpack('>BHBB', self._fp.read(5))
+        total_frames_declared, speed, row_count, column_count = unpack('>BHBB', self._fp.read(5))
+
         frames_data = []
 
-        for frame in range(total_frames):
-            size = unpack('>I', self._fp.read(4))[0]
-            frame_data = self._decode_frame_data(self._fp.read(size))
-            frames_data.append(frame_data)
+        for frame in range(total_frames_declared):
+            size_bytes = self._fp.read(4)
+            if len(size_bytes) < 4:
+                break
+
+            size = unpack('>I', size_bytes)[0]
+            frame_raw_data = self._fp.read(size)
+
+            if len(frame_raw_data) < size:
+                break
+
+            frames_data.append(_decode_0x0c_frame(frame_raw_data))
+
+        frames_decoded = len(frames_data)
+
+        if total_frames_declared != frames_decoded:
+            logger.warning('Frame count mismatch: declared %d, decoded %d',
+                           total_frames_declared, frames_decoded)
 
         # Convert to numpy arrays
         frames_arrays = self._compact(
-            frames_data, total_frames, row_count, column_count
+            frames_data, total_frames_declared, row_count, column_count
         )
 
         return PixelBean(
-            total_frames,
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=frames_decoded,  # Use actual decoded count
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
@@ -1442,49 +1309,12 @@ class Decoder0x1F(BaseDecoder):
                 
             except Exception as e:
                 # If JPEG decode fails, try to continue
-                print(f"  [WARN] Failed to decode JPEG frame {frame_count + 1}: {e}")
+                logger.warning("Failed to decode JPEG frame %d: %s", frame_count + 1, e)
             
             # Move to next potential frame (after current EOI)
             pos = eoi_pos + 2
         
         return frames_rgb
-    
-    def _build_frames_arrays(self, frames_rgb: List[bytes], width: int, height: int) -> List[np.ndarray]:
-        """
-        Build numpy arrays from raw RGB frames.
-        
-        Args:
-            frames_rgb: List of raw RGB frame data (bytes)
-            width: Frame width
-            height: Frame height
-            
-        Returns:
-            List of numpy arrays, each with shape (height, width, 3)
-        """
-        frames_arrays = []
-        
-        for frame_idx, rgb_bytes in enumerate(frames_rgb):
-            # Create numpy array for this frame (height, width, 3)
-            frame_array = np.zeros((height, width, 3), dtype=np.uint8)
-            
-            pos = 0
-            for y in range(height):
-                for x in range(width):
-                    if pos + 2 < len(rgb_bytes):
-                        r = rgb_bytes[pos]
-                        g = rgb_bytes[pos + 1]
-                        b = rgb_bytes[pos + 2]
-                        pos += 3
-                        
-                        # Store RGB values directly in numpy array
-                        frame_array[y, x] = [r, g, b]
-                    else:
-                        # Out of bounds, use black
-                        break
-            
-            frames_arrays.append(frame_array)
-        
-        return frames_arrays
     
     def decode(self) -> PixelBean:
         """
@@ -1494,7 +1324,7 @@ class Decoder0x1F(BaseDecoder):
         header_bytes = self._fp.read(5)
         
         if len(header_bytes) < 5:
-            print(f"[ERROR] Header too short: {len(header_bytes)} bytes")
+            logger.error("Format 31: header too short: %d bytes", len(header_bytes))
             return None
         
         total_frames = header_bytes[0]
@@ -1513,77 +1343,69 @@ class Decoder0x1F(BaseDecoder):
         frames_rgb = self._extract_jpeg_frames(payload, width, height, total_frames)
         
         if not frames_rgb:
-            print(f"[WARN] No JPEG frames extracted, creating blank frames")
+            logger.warning("Format 31: no JPEG frames extracted, creating blank frames")
             # Fallback: create blank frames
             blank_frame = bytes([0] * (width * height * 3))
             frames_rgb = [blank_frame] * total_frames
         
         # Build numpy arrays from RGB data
-        frames_arrays = self._build_frames_arrays(frames_rgb, width, height)
-        
+        frames_arrays = _frames_from_rgb(frames_rgb, width, height)
+
         # Return PixelBean
         return PixelBean(
-            len(frames_rgb),
-            speed,
-            row_count,
-            column_count,
-            frames_arrays,
+            metadata={},  # No metadata when decoding from file
+            total_frames=len(frames_rgb),
+            speed=speed,
+            row_count=row_count,
+            column_count=column_count,
+            frames_data=frames_arrays,
         )
 
 
-class PixelBeanDecoder(object):
+def _decode_format_26(fp: IOBase) -> PixelBean:
+    """Format 26 routes by canvas size: 64x64 uses the 0x0C decoder, larger uses 0x1A."""
+    header = fp.read(5)
+    if len(header) < 5:
+        return None
+    width = header[4] * 16
+    height = header[3] * 16
+    logger.info('File format 26 (%dx%d)', width, height)
+    stream = io.BytesIO(header + fp.read())
+    if width == 64 and height == 64:
+        return AnimMulti64Decoder(stream).decode()
+    return Decoder0x1A(stream).decode()
+
+
+# Format byte -> callable(fp) -> PixelBean.
+_DECODERS = {
+    FileFormat.ANIM_SINGLE: lambda fp: AnimSingleDecoder(fp).decode(),
+    FileFormat.ANIM_MULTIPLE: lambda fp: AnimMultiDecoder(fp).decode(),
+    FileFormat.PIC_MULTIPLE: lambda fp: PicMultiDecoder(fp).decode(),
+    FileFormat.ANIM_MULTIPLE_64: _decode_format_26,
+    FileFormat.ANIM_FORMAT_0x29: lambda fp: Format41Decoder(fp).decode(),
+    FileFormat.ANIM_FORMAT_0x1F: lambda fp: Decoder0x1F(fp).decode(),
+    FileFormat.ANIM_CONTAINER_ZSTD: lambda fp: AnimZstdRawRGBDecoder(fp).decode(),
+    FileFormat.ANIM_EMBEDDED_IMAGE: lambda fp: AnimEmbeddedImageDecoder(fp).decode(),
+}
+
+
+class PixelBeanDecoder:
+    """Dispatch a Divoom pixel file to the decoder registered for its format byte."""
+
+    @staticmethod
     def decode_file(file_path: str) -> PixelBean:
         with open(file_path, 'rb') as fp:
             return PixelBeanDecoder.decode_stream(fp)
 
+    @staticmethod
     def decode_stream(fp: IOBase) -> PixelBean:
-        try:
-            file_format = unpack('B', fp.read(1))[0]
-            print(f'File format: {file_format}')
-            file_format = FileFormat(file_format)
-        except Exception:
-            print(f'Unsupported file format: {file_format}')
+        head = fp.read(1)
+        if not head:
+            logger.error('Empty stream')
             return None
-
-        if file_format == FileFormat.ANIM_SINGLE:
-            return AnimSingleDecoder(fp).decode()
-        elif file_format == FileFormat.ANIM_MULTIPLE:
-            return AnimMultiDecoder(fp).decode()
-        elif file_format == FileFormat.PIC_MULTIPLE:
-            return PicMultiDecoder(fp).decode()
-        elif file_format == FileFormat.ANIM_MULTIPLE_64:
-            # Check dimensions to determine which decoder to use
-            # Read header: total_frames (1), speed (2), row_count (1), column_count (1)
-            header = fp.read(5)
-            if len(header) < 5:
-                return None
-            
-            total_frames = header[0]
-            speed = unpack('>H', header[1:3])[0]
-            row_count = header[3]
-            column_count = header[4]
-            
-            # Calculate dimensions
-            width = column_count * 16
-            height = row_count * 16
-            
-            # Create a new BytesIO stream with the header + remaining data
-            import io as io_module
-            remaining_data = fp.read()
-            new_fp = io_module.BytesIO(header + remaining_data)
-            
-            # Route to appropriate decoder based on dimensions
-            if width == 64 and height == 64:
-                # Use AnimMulti64Decoder for 64x64 animations (0x0C encryption)
-                return AnimMulti64Decoder(new_fp).decode()
-            else:
-                # Use Decoder0x1A for other sizes (128x128, etc.) with 0x11/0x13/0x15 encryption
-                return Decoder0x1A(new_fp).decode()
-        elif file_format == FileFormat.ANIM_FORMAT_0x1F:
-            return Decoder0x1F(fp).decode()
-        elif file_format == FileFormat.ANIM_FORMAT_0x29:
-            return Format41Decoder(fp).decode()
-        elif file_format == FileFormat.ANIM_CONTAINER_ZSTD:
-            return AnimZstdRawRGBDecoder(fp).decode()
-        elif file_format == FileFormat.ANIM_EMBEDDED_IMAGE:
-            return AnimEmbeddedImageDecoder(fp).decode()
+        try:
+            fmt = FileFormat(head[0])
+        except ValueError:
+            logger.error('Unsupported file format: %d', head[0])
+            return None
+        return _DECODERS[fmt](fp)

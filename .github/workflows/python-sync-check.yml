@@ -1,0 +1,25 @@
+name: Check docs Python is in sync
+
+# Fails if docs/src/python/*.py has drifted from the canonical servoom/ sources.
+# Regenerate locally with: node docs/scripts/sync-python.mjs
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  sync-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Regenerate docs/src/python from servoom/
+        run: node docs/scripts/sync-python.mjs
+      - name: Fail if out of sync
+        run: git diff --exit-code -- docs/src/python

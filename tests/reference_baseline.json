@@ -1,0 +1,98 @@
+{
+  "reference-animations/26/DAT/4164515.dat": {
+    "frames": 15,
+    "hash": "8c2743efe7514d0054b972a89b50802f0fcd286c21bb3538dd47396f13cb9a89",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 100,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4148109_paws2025+Leo.dat": {
+    "frames": 37,
+    "hash": "be6c95a1d02aa6d2944638943bd9807bb88c8eaadf9525f0c9087262f37058d9",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 210,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4148147_paws2025+walking.dat": {
+    "frames": 43,
+    "hash": "542f2f8d7fabe3e17e8367509ff290c6edbd9afe28838728b8e6ab47dc95ea28",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 100,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4148355_Cozy in the storm.dat": {
+    "frames": 22,
+    "hash": "e3ad3a2592e13494671d6e635f6193b0c950cd4e8305d7c667e21a6aaaf17931",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 120,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4149041_Jellyfish glow.dat": {
+    "frames": 34,
+    "hash": "3cac6ebf45ae1bb7f382604fafc9f256d271a3d4caf2ba5865e2c985674ba609",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 242,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4151433_Mousey.dat": {
+    "frames": 17,
+    "hash": "e8426e44b80bfcfed4e4f683d00d8608d5ec89b613c4ef504ab47e6146826b66",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 100,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4156739_Vintage Diver.dat": {
+    "frames": 46,
+    "hash": "026d4f5b62835acde1ddb2ec0ba8765ba6516fc57a6673ceb5eb17f14c55ba6a",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 156,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4157669_spooky mouse.dat": {
+    "frames": 27,
+    "hash": "76cfc2b2efab9462d4e2e88566fe627c5de732d2c894efdd1dd39f42f8384676",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 278,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4158331_paws2025+playful cat.dat": {
+    "frames": 50,
+    "hash": "cb333c8b5edba3b9728f32be6a22370a8b97aea11672992d164f6660b9b26e0c",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 170,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4158673_ST Shifting Arrows _ 128px.dat": {
+    "frames": 60,
+    "hash": "98928849a2dbb8d7dd541e0c621336dfac102cfa6ccf686a8b7cc85ac183f0b3",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 92,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4159053_divoom.fans Chromatic Prism.dat": {
+    "frames": 92,
+    "hash": "11ea07df10c0ede7102c6436f317cbbd4e6f40f11cfd97fa0ff447fd8e404ea2",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 50,
+    "width": 128
+  },
+  "reference-animations/mixed/DAT/4159977_Paws2025+Captain Kibbles.dat": {
+    "frames": 40,
+    "hash": "5e1f61a4a57a78132c5acb8e4baa13d18ac0f08737dddd6c1049ab1e9b3f2555",
+    "height": 128,
+    "kind": "pixel",
+    "speed": 262,
+    "width": 128
+  }
+}
