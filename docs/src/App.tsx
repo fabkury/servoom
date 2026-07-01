@@ -1709,6 +1709,21 @@ function App() {
                   <button onClick={() => blobDownload(decodeState.raw, `${decodeState.item.GalleryId}.dat`)}>
                     {t.buttons.downloadDat}
                   </button>
+                  {hasLayerFile(decodeState.item) && (
+                    <>
+                      <button onClick={() => handleDownloadLayerDat(decodeState.item)}>
+                        {t.buttons.downloadLayerDat}
+                      </button>
+                      <button
+                        onClick={() => handleDownloadLayerPsd(decodeState.item)}
+                        disabled={layerBusyItemId !== null}
+                      >
+                        {layerBusyItemId === decodeState.item.GalleryId
+                          ? t.buttons.loading
+                          : t.buttons.downloadLayerPsd}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
               <AnimationPreview bean={decodeState.bean} scale={scale} />
