@@ -16,6 +16,7 @@ import {
   login,
 } from './lib/divoomApi';
 import { PyodideDecoder, type DecodedBean } from './lib/pyodideDecoder';
+import { layerFileToPsd } from './lib/layerFile';
 import logger from './lib/logger';
 
 interface DecodeState {
@@ -30,7 +31,7 @@ const MAX_ITEMS = 500;
 const LOCALE_STORAGE_KEY = 'servoom-locale';
 
 type Locale = 'en' | 'es' | 'zh' | 'ja' | 'ru';
-type ZipOptionKey = 'webp' | 'gif' | 'dat';
+type ZipOptionKey = 'webp' | 'gif' | 'dat' | 'layerDat' | 'layerPsd';
 
 interface Translation {
   header: { title: string; tagline: string; footer: string; languageLabel: string };
@@ -47,6 +48,8 @@ interface Translation {
     downloadWebp: string;
     downloadGif: string;
     downloadDat: string;
+    downloadLayerDat: string;
+    downloadLayerPsd: string;
     cancelFetch: string;
     selectPage: string;
     unselectPage: string;
@@ -105,6 +108,7 @@ interface Translation {
     zipFinalizing: string;
     zipReady: string;
     zipFailed: string;
+    layerBuild: string;
   };
   previewTitle: string;
   errors: {
@@ -114,6 +118,7 @@ interface Translation {
       decode: string;
       raw: string;
       zip: string;
+      layer: string;
     };
     api: (context: string, code: number) => string;
     generic: (message: string) => string;
@@ -146,6 +151,8 @@ const translations: Record<Locale, Translation> = {
       downloadWebp: 'Download WebP',
       downloadGif: 'Download GIF',
       downloadDat: 'Download DAT',
+      downloadLayerDat: 'Layer DAT',
+      downloadLayerPsd: 'Layer PSD',
       cancelFetch: 'Cancel current fetch',
       selectPage: 'Select all (page)',
       unselectPage: 'Unselect all (page)',
@@ -197,7 +204,7 @@ const translations: Record<Locale, Translation> = {
       summaryNeedFormat: 'Enable at least one format above to export.',
       summaryNeedSelection: 'Select artworks above to enable ZIP export.',
       cacheLabel: (filename) => `Last ZIP: ${filename}`,
-      formats: { webp: 'WebP', gif: 'GIF', dat: 'DAT (raw)' },
+      formats: { webp: 'WebP', gif: 'GIF', dat: 'DAT (raw)', layerDat: 'Layer DAT', layerPsd: 'Layer PSD' },
     },
     status: {
       cancelFetch: 'Cancelling current fetch…',
@@ -211,6 +218,7 @@ const translations: Record<Locale, Translation> = {
       zipFinalizing: 'Finalizing ZIP archive…',
       zipReady: 'ZIP download ready',
       zipFailed: 'ZIP creation failed',
+      layerBuild: 'Building layer PSD…',
     },
     previewTitle: 'Preview & export single artwork',
     errors: {
@@ -220,6 +228,7 @@ const translations: Record<Locale, Translation> = {
         decode: 'Decode',
         raw: 'Raw download',
         zip: 'ZIP export',
+        layer: 'Layer export',
       },
       api: (context, code) => `${context} failed (code ${code}).`,
       generic: (message) => message,
@@ -250,6 +259,8 @@ const translations: Record<Locale, Translation> = {
       downloadWebp: 'Descargar WebP',
       downloadGif: 'Descargar GIF',
       downloadDat: 'Descargar DAT',
+      downloadLayerDat: 'DAT de capas',
+      downloadLayerPsd: 'PSD de capas',
       cancelFetch: 'Cancelar la descarga',
       selectPage: 'Seleccionar todo (página)',
       unselectPage: 'Deseleccionar todo (página)',
@@ -302,7 +313,7 @@ const translations: Record<Locale, Translation> = {
       summaryNeedFormat: 'Activa al menos un formato para exportar.',
       summaryNeedSelection: 'Selecciona obras para habilitar el ZIP.',
       cacheLabel: (filename) => `Último ZIP: ${filename}`,
-      formats: { webp: 'WebP', gif: 'GIF', dat: 'DAT (bruto)' },
+      formats: { webp: 'WebP', gif: 'GIF', dat: 'DAT (bruto)', layerDat: 'DAT de capas', layerPsd: 'PSD de capas' },
     },
     status: {
       cancelFetch: 'Cancelando la descarga…',
@@ -316,6 +327,7 @@ const translations: Record<Locale, Translation> = {
       zipFinalizing: 'Finalizando el ZIP…',
       zipReady: 'ZIP listo para descargar',
       zipFailed: 'Error al crear el ZIP',
+      layerBuild: 'Generando PSD de capas…',
     },
     previewTitle: 'Vista previa y exportación de una sola obra',
     errors: {
@@ -325,6 +337,7 @@ const translations: Record<Locale, Translation> = {
         decode: 'Decodificación',
         raw: 'Descarga bruta',
         zip: 'Exportación ZIP',
+        layer: 'Exportación de capas',
       },
       api: (context, code) => `${context} falló (código ${code}).`,
       generic: (message) => `Error: ${message}`,
@@ -355,6 +368,8 @@ const translations: Record<Locale, Translation> = {
       downloadWebp: '下载 WebP',
       downloadGif: '下载 GIF',
       downloadDat: '下载 DAT',
+      downloadLayerDat: '图层 DAT',
+      downloadLayerPsd: '图层 PSD',
       cancelFetch: '取消当前获取',
       selectPage: '本页全选',
       unselectPage: '本页全不选',
@@ -406,7 +421,7 @@ const translations: Record<Locale, Translation> = {
       summaryNeedFormat: '请至少选择一种导出格式。',
       summaryNeedSelection: '请选择上方的作品以启用 ZIP。',
       cacheLabel: (filename) => `最新 ZIP：${filename}`,
-      formats: { webp: 'WebP', gif: 'GIF', dat: 'DAT（原始）' },
+      formats: { webp: 'WebP', gif: 'GIF', dat: 'DAT（原始）', layerDat: '图层 DAT', layerPsd: '图层 PSD' },
     },
     status: {
       cancelFetch: '正在取消当前获取…',
@@ -420,6 +435,7 @@ const translations: Record<Locale, Translation> = {
       zipFinalizing: '正在完成 ZIP…',
       zipReady: 'ZIP 可供下载',
       zipFailed: '创建 ZIP 失败',
+      layerBuild: '正在生成图层 PSD…',
     },
     previewTitle: '单个作品预览与导出',
     errors: {
@@ -429,6 +445,7 @@ const translations: Record<Locale, Translation> = {
         decode: '解码',
         raw: '原始下载',
         zip: 'ZIP 导出',
+        layer: '图层导出',
       },
       api: (context, code) => `${context} 失败（代码 ${code}）。`,
       generic: (message) => `错误：${message}`,
@@ -459,6 +476,8 @@ const translations: Record<Locale, Translation> = {
       downloadWebp: 'WebP をダウンロード',
       downloadGif: 'GIF をダウンロード',
       downloadDat: 'DAT をダウンロード',
+      downloadLayerDat: 'レイヤー DAT',
+      downloadLayerPsd: 'レイヤー PSD',
       cancelFetch: '取得をキャンセル',
       selectPage: 'ページ全てを選択',
       unselectPage: 'ページ全てを解除',
@@ -510,7 +529,7 @@ const translations: Record<Locale, Translation> = {
       summaryNeedFormat: 'エクスポート形式を少なくとも 1 つ選択してください。',
       summaryNeedSelection: '上の作品を選択すると ZIP が有効になります。',
       cacheLabel: (filename) => `最新の ZIP: ${filename}`,
-      formats: { webp: 'WebP', gif: 'GIF', dat: 'DAT (生データ)' },
+      formats: { webp: 'WebP', gif: 'GIF', dat: 'DAT (生データ)', layerDat: 'レイヤー DAT', layerPsd: 'レイヤー PSD' },
     },
     status: {
       cancelFetch: '取得をキャンセルしています…',
@@ -524,6 +543,7 @@ const translations: Record<Locale, Translation> = {
       zipFinalizing: 'ZIP を最終処理しています…',
       zipReady: 'ZIP のダウンロード準備完了',
       zipFailed: 'ZIP の作成に失敗しました',
+      layerBuild: 'レイヤー PSD を作成中…',
     },
     previewTitle: '単一作品のプレビューとエクスポート',
     errors: {
@@ -533,6 +553,7 @@ const translations: Record<Locale, Translation> = {
         decode: 'デコード',
         raw: '生データのダウンロード',
         zip: 'ZIP エクスポート',
+        layer: 'レイヤー書き出し',
       },
       api: (context, code) => `${context} に失敗しました（コード ${code}）。`,
       generic: (message) => `エラー: ${message}`,
@@ -563,6 +584,8 @@ const translations: Record<Locale, Translation> = {
       downloadWebp: 'Скачать WebP',
       downloadGif: 'Скачать GIF',
       downloadDat: 'Скачать DAT',
+      downloadLayerDat: 'Слои DAT',
+      downloadLayerPsd: 'Слои PSD',
       cancelFetch: 'Отменить загрузку',
       selectPage: 'Выбрать всё (страница)',
       unselectPage: 'Снять выбор (страница)',
@@ -614,7 +637,7 @@ const translations: Record<Locale, Translation> = {
       summaryNeedFormat: 'Выберите хотя бы один формат выше.',
       summaryNeedSelection: 'Выберите работы выше, чтобы включить ZIP.',
       cacheLabel: (filename) => `Последний ZIP: ${filename}`,
-      formats: { webp: 'WebP', gif: 'GIF', dat: 'DAT (сырой)' },
+      formats: { webp: 'WebP', gif: 'GIF', dat: 'DAT (сырой)', layerDat: 'Слои DAT', layerPsd: 'Слои PSD' },
     },
     status: {
       cancelFetch: 'Отмена текущей загрузки…',
@@ -628,6 +651,7 @@ const translations: Record<Locale, Translation> = {
       zipFinalizing: 'Завершение ZIP…',
       zipReady: 'ZIP готов к загрузке',
       zipFailed: 'Сбой при создании ZIP',
+      layerBuild: 'Создание PSD слоёв…',
     },
     previewTitle: 'Предпросмотр и экспорт одной работы',
     errors: {
@@ -637,6 +661,7 @@ const translations: Record<Locale, Translation> = {
         decode: 'Декодирование',
         raw: 'RAW-загрузка',
         zip: 'Экспорт ZIP',
+        layer: 'Экспорт слоёв',
       },
       api: (context, code) => `${context} не выполнен (код ${code}).`,
       generic: (message) => `Ошибка: ${message}`,
@@ -667,7 +692,8 @@ type StatusDescriptor =
   | { type: 'userBatch'; chunk: number; start: number; end: number }
   | { type: 'userCancelled' }
   | { type: 'decoderInit' }
-  | { type: 'downloadBinary' };
+  | { type: 'downloadBinary' }
+  | { type: 'layerBuild' };
 
 type ZipStatusDescriptor =
   | { type: 'init' }
@@ -676,7 +702,7 @@ type ZipStatusDescriptor =
   | { type: 'ready' }
   | { type: 'failed' };
 
-type ErrorContext = 'login' | 'user' | 'decode' | 'raw' | 'zip';
+type ErrorContext = 'login' | 'user' | 'decode' | 'raw' | 'zip' | 'layer';
 
 type UiError =
   | { type: 'api'; context: ErrorContext; code: number }
@@ -703,6 +729,10 @@ function formatNumber(value: number | undefined): string {
 
 function safeName(item: GalleryInfo): string {
   return item.FileName?.replace(/[^a-z0-9_\-]+/gi, '_') || String(item.GalleryId);
+}
+
+function hasLayerFile(item: GalleryInfo): boolean {
+  return typeof item.LayerFileId === 'string' && item.LayerFileId.trim().length > 0;
 }
 
 function interpretFileSizeFlag(flag?: number): string {
@@ -762,6 +792,8 @@ function formatStatusMessage(status: StatusDescriptor, t: Translation): string {
       return t.status.decoderInit;
     case 'downloadBinary':
       return t.status.downloadBinary;
+    case 'layerBuild':
+      return t.status.layerBuild;
     default:
       return '';
   }
@@ -870,6 +902,7 @@ function App() {
   const decoder = useMemo(() => new PyodideDecoder(), []);
   const downloadCache = useRef<Map<number, Uint8Array>>(new Map());
   const decodedCache = useRef<Map<number, DecodedBean>>(new Map());
+  const layerDownloadCache = useRef<Map<number, Uint8Array>>(new Map());
 
   const [locale, setLocale] = useState<Locale>('en');
   const t = translations[locale];
@@ -910,10 +943,13 @@ function App() {
     webp: true,
     gif: true,
     dat: true,
+    layerDat: true,
+    layerPsd: true,
   });
   const [zipStatus, setZipStatus] = useState<ZipStatusDescriptor | null>(null);
   const [zipCacheMeta, setZipCacheMeta] = useState<{ filename: string } | null>(null);
   const [decodingItemId, setDecodingItemId] = useState<number | null>(null);
+  const [layerBusyItemId, setLayerBusyItemId] = useState<number | null>(null);
   const zipCacheRef = useRef<{ url: string; filename: string } | null>(null);
   const cancelRef = useRef(false);
 
@@ -948,7 +984,8 @@ function App() {
   const selectionCount = selectedItems.length;
   const pageHasItems = paginatedItems.length > 0;
   const currentPageSelected = paginatedItems.filter((item) => selectionMap.get(item.GalleryId)).length;
-  const zipTypesSelected = zipOptions.webp || zipOptions.gif || zipOptions.dat;
+  const zipTypesSelected =
+    zipOptions.webp || zipOptions.gif || zipOptions.dat || zipOptions.layerDat || zipOptions.layerPsd;
   const selectedZipFormats = (Object.entries(zipOptions) as Array<[ZipOptionKey, boolean]>)
     .filter(([, enabled]) => enabled)
     .map(([key]) => t.zip.formats[key]);
@@ -1043,6 +1080,7 @@ function App() {
   const handleLogout = () => {
     downloadCache.current.clear();
     decodedCache.current.clear();
+    layerDownloadCache.current.clear();
     setSession(null);
     setLoginError(null);
     setItems([]);
@@ -1196,6 +1234,26 @@ function App() {
     }
   };
 
+  const fetchLayerRaw = async (item: GalleryInfo): Promise<Uint8Array> => {
+    const cached = layerDownloadCache.current.get(item.GalleryId);
+    if (cached) {
+      return cached;
+    }
+    const layerId = item.LayerFileId;
+    if (!layerId) {
+      throw new Error('No layer file for this artwork.');
+    }
+    setStatus({ type: 'downloadBinary' });
+    try {
+      const data = await downloadBinary(layerId);
+      layerDownloadCache.current.set(item.GalleryId, data);
+      logger.info('Layer binary downloaded', { galleryId: item.GalleryId, bytes: data.length });
+      return data;
+    } finally {
+      setStatus(null);
+    }
+  };
+
   const handleDecode = async (item: GalleryInfo) => {
     if (decodingLocked) return;
     setDecodingItemId(item.GalleryId);
@@ -1243,6 +1301,37 @@ function App() {
       } else {
         setError({ type: 'generic', message: (err as Error).message });
       }
+    }
+  };
+
+  const handleDownloadLayerDat = async (item: GalleryInfo) => {
+    try {
+      const raw = await fetchLayerRaw(item);
+      blobDownload(raw, `${safeName(item)}_${item.GalleryId}_layer.dat`);
+      logger.info('Layer DAT download triggered', { galleryId: item.GalleryId });
+    } catch (err) {
+      logger.error('Layer DAT download failed', err);
+      setError({ type: 'generic', message: (err as Error).message });
+    }
+  };
+
+  const handleDownloadLayerPsd = async (item: GalleryInfo) => {
+    if (layerBusyItemId !== null) return;
+    setLayerBusyItemId(item.GalleryId);
+    setError(null);
+    try {
+      const raw = await fetchLayerRaw(item);
+      setStatus({ type: 'layerBuild' });
+      const psd = await layerFileToPsd(raw);
+      blobDownload(psd, `${safeName(item)}_${item.GalleryId}.psd`);
+      setStatus(null);
+      logger.info('Layer PSD download triggered', { galleryId: item.GalleryId });
+    } catch (err) {
+      setStatus(null);
+      logger.error('Layer PSD export failed', err);
+      setError({ type: 'generic', message: (err as Error).message });
+    } finally {
+      setLayerBusyItemId(null);
     }
   };
 
@@ -1297,27 +1386,51 @@ function App() {
       const datFolder = zipOptions.dat ? zip.folder(`${basePath}/DAT`) : null;
       const webpFolder = zipOptions.webp ? zip.folder(`${basePath}/WebP`) : null;
       const gifFolder = zipOptions.gif ? zip.folder(`${basePath}/GIF`) : null;
-      if ((zipOptions.dat && !datFolder) || (zipOptions.webp && !webpFolder) || (zipOptions.gif && !gifFolder)) {
+      const layerDatFolder = zipOptions.layerDat ? zip.folder(`${basePath}/LayerDAT`) : null;
+      const layerPsdFolder = zipOptions.layerPsd ? zip.folder(`${basePath}/LayerPSD`) : null;
+      if (
+        (zipOptions.dat && !datFolder) ||
+        (zipOptions.webp && !webpFolder) ||
+        (zipOptions.gif && !gifFolder) ||
+        (zipOptions.layerDat && !layerDatFolder) ||
+        (zipOptions.layerPsd && !layerPsdFolder)
+      ) {
         throw new Error('Failed to create ZIP folders');
       }
+      const needArtwork = zipOptions.dat || zipOptions.webp || zipOptions.gif;
+      const needLayer = zipOptions.layerDat || zipOptions.layerPsd;
       for (let i = 0; i < selectedItems.length; i += 1) {
         const item = selectedItems[i];
         const progressLabel = item.FileName || `Gallery ${item.GalleryId}`;
         setZipStatus({ type: 'progress', current: i + 1, total: selectionCount, label: progressLabel });
-        const raw = await fetchRaw(item);
-        if (zipOptions.dat && datFolder) {
-          datFolder.file(`${safeName(item)}_${item.GalleryId}.dat`, raw);
+        if (needArtwork) {
+          const raw = await fetchRaw(item);
+          if (zipOptions.dat && datFolder) {
+            datFolder.file(`${safeName(item)}_${item.GalleryId}.dat`, raw);
+          }
+          if (zipOptions.webp || zipOptions.gif) {
+            let bean = decodedCache.current.get(item.GalleryId);
+            if (!bean) {
+              bean = await decoder.decode(raw);
+              decodedCache.current.set(item.GalleryId, bean);
+            }
+            if (zipOptions.webp && webpFolder) {
+              webpFolder.file(`${safeName(item)}_${item.GalleryId}.webp`, bean.webp);
+            }
+            if (zipOptions.gif && gifFolder) {
+              gifFolder.file(`${safeName(item)}_${item.GalleryId}.gif`, bean.gif);
+            }
+          }
         }
-        let bean = decodedCache.current.get(item.GalleryId);
-        if (!bean) {
-          bean = await decoder.decode(raw);
-          decodedCache.current.set(item.GalleryId, bean);
-        }
-        if (zipOptions.webp && webpFolder) {
-          webpFolder.file(`${safeName(item)}_${item.GalleryId}.webp`, bean.webp);
-        }
-        if (zipOptions.gif && gifFolder) {
-          gifFolder.file(`${safeName(item)}_${item.GalleryId}.gif`, bean.gif);
+        if (needLayer && hasLayerFile(item)) {
+          const layerRaw = await fetchLayerRaw(item);
+          if (zipOptions.layerDat && layerDatFolder) {
+            layerDatFolder.file(`${safeName(item)}_${item.GalleryId}_layer.dat`, layerRaw);
+          }
+          if (zipOptions.layerPsd && layerPsdFolder) {
+            const psd = await layerFileToPsd(layerRaw);
+            layerPsdFolder.file(`${safeName(item)}_${item.GalleryId}.psd`, psd);
+          }
         }
       }
       setZipStatus({ type: 'finalizing' });
@@ -1543,6 +1656,21 @@ function App() {
                           {decodingItemId === item.GalleryId ? t.buttons.decoding : t.buttons.decode}
                         </button>
                         <button onClick={() => handleDownloadRaw(item)}>{t.buttons.raw}</button>
+                        {hasLayerFile(item) && (
+                          <>
+                            <button onClick={() => handleDownloadLayerDat(item)}>
+                              {t.buttons.downloadLayerDat}
+                            </button>
+                            <button
+                              onClick={() => handleDownloadLayerPsd(item)}
+                              disabled={layerBusyItemId !== null}
+                            >
+                              {layerBusyItemId === item.GalleryId
+                                ? t.buttons.loading
+                                : t.buttons.downloadLayerPsd}
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -1609,6 +1737,22 @@ function App() {
           <label className="checkbox">
             <input type="checkbox" checked={zipOptions.dat} onChange={() => handleZipOptionToggle('dat')} />
             {t.zip.formats.dat}
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={zipOptions.layerDat}
+              onChange={() => handleZipOptionToggle('layerDat')}
+            />
+            {t.zip.formats.layerDat}
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={zipOptions.layerPsd}
+              onChange={() => handleZipOptionToggle('layerPsd')}
+            />
+            {t.zip.formats.layerPsd}
           </label>
         </div>
         <div className="zip-bar">
