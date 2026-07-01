@@ -1,9 +1,11 @@
-# Divoom "Layer File" format (0x27 / 39) — reverse-engineering findings
+# Divoom "Layer File" format (0x27 / 39 and 0x28 / 40) — reverse-engineering findings
 
 Status: **format essentially solved.** The decoder
 (`divoom_layer_decoder.py` here, and `servoom.LayerFileDecoder` in the package) parses the
 container, recovers every layer bitmap and per-layer opacity, and re-composites the
-animation. Validated against 20 layer/artwork pairs sampled from the Recommended gallery.
+animation. Validated against 20 layer/artwork pairs sampled from the Recommended gallery
+(0x27), plus the 0x28 variant (gallery 4200665, "Dostoyevsky's Transformation"), whose
+composite matches the artwork render to within ~0.9 avg RGB.
 
 The layer file is the **editable, layered source** the Divoom app keeps for an artwork
 (field `LayerFileId`). The artwork file (`FileId`) is the flattened render.
@@ -12,28 +14,31 @@ The layer file is the **editable, layered source** the Divoom app keeps for an a
 
 ## 1. Container layout
 
-All multi-byte integers are **big-endian**.
+All multi-byte integers are **big-endian**. Two container versions exist; they share the
+same layer table and differ only in how the pixels are stored.
 
 ```
-offset 0 : uint8   format id = 0x27 (39)
-then a sequence of length-prefixed zstd streams:
+offset 0 : uint8   format id = 0x27 (39)  or  0x28 (40)
+STREAM 0 (both): a length-prefixed zstd stream = the LAYER TABLE
      uint32  C     compressed size of this stream (bytes)
      uint32  U     uncompressed size of this stream (bytes)
      bytes[C]      one zstd frame (magic 28 B5 2F FD) that inflates to U bytes
 ```
 
-There are **exactly two streams**:
+Pixels follow the layer table, encoded by format id:
 
-| Stream | Name        | Contents                                             |
-|-------:|-------------|------------------------------------------------------|
-| 0      | layer table | per-frame layer metadata (small)                     |
-| 1      | pixels      | K raw 24-bit RGB layer bitmaps, concatenated (large) |
+| Format | Pixel section                                                              |
+|-------:|----------------------------------------------------------------------------|
+| 0x27   | a **second** zstd stream: K raw 24-bit RGB bitmaps, concatenated            |
+| 0x28   | K records, each `[uint8 flag][uint32 BE length][lossless WEBP]` (one/layer) |
 
-So the first 9 bytes are `27 | C0(4) | U0(4)`, then zstd stream 0, then `C1(4) | U1(4)`,
-then zstd stream 1. This held for all 20 samples (0 trailing bytes).
+For 0x27 the first 9 bytes are `27 | C0(4) | U0(4)`, then zstd stream 0, then
+`C1(4) | U1(4)`, then zstd stream 1 (held for all 20 samples, 0 trailing bytes). For 0x28
+the layer-table stream is followed by K length-prefixed WEBP records that consume the file
+exactly (the `flag` byte was 0x00 for all 92 layers in the sample; treated as reserved).
 
-Compression is **zstd** — the same codec as artwork format 0x2A (42). No AES and no LZO
-in the layer container (those are used by other *artwork* formats).
+Compression is **zstd** for the table (same codec as artwork format 0x2A / 42); 0x28 stores
+each layer bitmap as a **lossless WEBP** (VP8L). No AES and no LZO in the layer container.
 
 ---
 
@@ -81,17 +86,21 @@ composite in any case we tested.
 
 ---
 
-## 3. Stream 1 — the pixel data
+## 3. The pixel data
 
-`K` bitmaps laid out back-to-back, each `side*side*3` bytes, row-major, **8 bits per
-channel RGB** (24-bit). This directly confirms the app's internal 24-bit RGB model
-(smooth gradients survive round-trips).
+Bitmaps are ordered **frame-major** in both formats: all layers of frame 0 (bottom → top),
+then all layers of frame 1, and so on.
 
-* **Canvas is square**, so the side length is recoverable from the file alone:
-  `side = sqrt( U1 / (3*K) )` — integral for every sample (16, 32, 64, 128, 256).
-  The layer file therefore needs **no external size hint**.
-* Bitmaps are ordered **frame-major**: all layers of frame 0 (bottom → top), then all
-  layers of frame 1, and so on.
+**0x27 — raw RGB (stream 1).** `K` bitmaps laid out back-to-back, each `side*side*3` bytes,
+row-major, **8 bits per channel RGB** (24-bit). This directly confirms the app's internal
+24-bit RGB model (smooth gradients survive round-trips). The canvas is square, so the side
+length is recoverable from the file alone: `side = sqrt( U1 / (3*K) )` — integral for every
+sample (16, 32, 64, 128, 256); the layer file needs **no external size hint**.
+
+**0x28 — lossless WEBP.** Each layer bitmap is a standalone **VP8L (lossless) WEBP** image,
+preceded by a `uint8` flag (0x00, reserved) and a `uint32` big-endian byte length. Decoding
+each WEBP to RGB yields the same 24-bit layer bitmap as 0x27; the side comes from the WEBP
+dimensions. Same black-as-transparent convention (no alpha channel is used).
 
 ---
 
