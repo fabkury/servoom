@@ -34,7 +34,12 @@ A browser-based companion lives in `docs/` and is continuously deployed to Cloud
 
 ## Installation
 
-Just install the package dependencies:
+Install the package dependencies (including the optional `pytoshop` for PSD export):
+```powershell
+pip install -r requirements.txt
+```
+
+Or install them explicitly:
 ```powershell
 pip install requests numpy pillow pandas tqdm lzallright pycryptodome zstandard
 # optional, for PSD export of layer files:
