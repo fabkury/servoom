@@ -9,14 +9,14 @@ and per-layer opacity, and can composite the layers back into the animation.
 ------------------------------------------------------------------------------------
 CONTAINER LAYOUT  (all multi-byte integers are big-endian)
 ------------------------------------------------------------------------------------
-  offset 0 : uint8   format id = 0x27 (39)
-  then a sequence of length-prefixed zstd streams:
+  offset 0 : uint8   format id = 0x27 (39)  or  0x28 (40)
+  STREAM 0 ("layer table"), both formats: a length-prefixed zstd stream
         uint32 C   = compressed size of the stream
         uint32 U   = uncompressed size of the stream
         bytes[C]   = a single zstd frame (magic 28 B5 2F FD) -> U bytes
-  There are exactly two streams:
-    STREAM 0  ("layer table"):  per-frame layer metadata
-    STREAM 1  ("pixels"):       K raw 24-bit RGB layer bitmaps, back to back
+  PIXELS follow, encoded per format id:
+    0x27: STREAM 1 = a second zstd stream of K raw 24-bit RGB bitmaps, back to back.
+    0x28: K records, each [uint8 flag][uint32 BE length][lossless WEBP image] (one per layer).
 
 STREAM 0  (layer table), repeated for each animation frame until exhausted:
     uint8  num_layers          number of layers in this frame
@@ -29,10 +29,11 @@ STREAM 0  (layer table), repeated for each animation frame until exhausted:
   The number of frame records equals the artwork's declared frame count, and the sum of
   num_layers over all frames equals K (the number of bitmaps in stream 1).
 
-STREAM 1  (pixels):
-    K bitmaps, each  width*height*3  bytes, row-major RGB, 8 bits/channel.
-    Canvas is square, so  side = sqrt( len(stream1) / (3*K) )  (always integral in samples).
-    Bitmaps are ordered frame-major: all layers of frame 0 (bottom->top), then frame 1, ...
+PIXELS:
+    K bitmaps ordered frame-major: all layers of frame 0 (bottom->top), then frame 1, ...
+    0x27: each bitmap is  width*height*3  bytes, row-major RGB, 8 bits/channel, stored
+          back-to-back in STREAM 1. Canvas is square, so side = sqrt(len(stream1)/(3*K)).
+    0x28: each bitmap is a lossless WEBP image (RGB); side comes from the WEBP dimensions.
 
 COMPOSITING (matches the Divoom editor):
     * The colour BLACK (0,0,0) is TRANSPARENT.
@@ -52,6 +53,7 @@ Usage:
 """
 
 import argparse
+import io
 import math
 import os
 import sys
@@ -61,32 +63,26 @@ import numpy as np
 import zstandard as zstd
 from PIL import Image
 
-FORMAT_ID = 0x27
+FORMAT_RAW_RGB = 0x27   # pixels = one zstd stream of raw 24-bit RGB bitmaps
+FORMAT_WEBP = 0x28      # pixels = per-layer [uint8 flag][uint32 BE length][lossless WEBP]
+SUPPORTED_FORMATS = (FORMAT_RAW_RGB, FORMAT_WEBP)
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 
 
 # --------------------------------------------------------------------------- #
 # Parsing
 # --------------------------------------------------------------------------- #
-def _read_streams(data: bytes):
-    """Return list of (compressed_size, uncompressed_size, decompressed_bytes)."""
-    if not data or data[0] != FORMAT_ID:
-        raise ValueError(f"not a 0x27 layer file (first byte = 0x{data[0]:02x})")
-    pos = 1
-    dctx = zstd.ZstdDecompressor()
-    out = []
-    while pos + 8 <= len(data):
-        c = unpack(">I", data[pos : pos + 4])[0]
-        u = unpack(">I", data[pos + 4 : pos + 8])[0]
-        comp = data[pos + 8 : pos + 8 + c]
-        if comp[:4] != ZSTD_MAGIC:
-            raise ValueError(f"expected zstd magic at offset {pos+8}")
-        dec = dctx.decompressobj().decompress(comp)
-        if len(dec) != u:
-            raise ValueError(f"stream size mismatch: header says {u}, got {len(dec)}")
-        out.append((c, u, dec))
-        pos += 8 + c
-    return out
+def _read_zstd_stream(data: bytes, pos: int):
+    """Read one length-prefixed zstd stream at pos; return (decompressed_bytes, next_pos)."""
+    c = unpack(">I", data[pos : pos + 4])[0]
+    u = unpack(">I", data[pos + 4 : pos + 8])[0]
+    comp = data[pos + 8 : pos + 8 + c]
+    if comp[:4] != ZSTD_MAGIC:
+        raise ValueError(f"expected zstd magic at offset {pos+8}")
+    dec = zstd.ZstdDecompressor().decompressobj().decompress(comp)
+    if len(dec) != u:
+        raise ValueError(f"stream size mismatch: header says {u}, got {len(dec)}")
+    return dec, pos + 8 + c
 
 
 def _parse_layer_table(stream0: bytes):
@@ -110,27 +106,43 @@ def _parse_layer_table(stream0: bytes):
 
 class DivoomLayerFile:
     def __init__(self, data: bytes):
-        streams = _read_streams(data)
-        if len(streams) != 2:
-            raise ValueError(f"expected 2 streams, found {len(streams)}")
-        self.streams_meta = [(c, u) for (c, u, _) in streams]
-        self.stream0 = streams[0][2]
-        self.stream1 = streams[1][2]
+        if not data or data[0] not in SUPPORTED_FORMATS:
+            got = f"0x{data[0]:02x}" if data else None
+            raise ValueError(f"not a 0x27/0x28 layer file (first byte = {got})")
+        self.format = data[0]
+
+        # Stream 0 (layer table) is a zstd stream in both formats.
+        self.stream0, pos = _read_zstd_stream(data, 1)
         self.frames_meta = _parse_layer_table(self.stream0)
-
         self.total_layers = sum(f["num_layers"] for f in self.frames_meta)
-        # Derive square canvas side from the pixel stream.
-        px = len(self.stream1)
-        side_sq = px / (3 * self.total_layers) if self.total_layers else 0
-        side = int(round(math.sqrt(side_sq)))
-        if side * side != int(round(side_sq)) or side * side * 3 * self.total_layers != px:
-            raise ValueError(f"pixel stream {px} not K*side^2*3 (K={self.total_layers})")
-        self.width = self.height = side
 
-        # All bitmaps as (K, H, W, 3)
-        self.bitmaps = np.frombuffer(self.stream1, np.uint8).reshape(
-            self.total_layers, self.height, self.width, 3
-        )
+        if self.format == FORMAT_RAW_RGB:
+            stream1, _ = _read_zstd_stream(data, pos)
+            px = len(stream1)
+            side_sq = px / (3 * self.total_layers) if self.total_layers else 0
+            side = int(round(math.sqrt(side_sq)))
+            if side * side != int(round(side_sq)) or side * side * 3 * self.total_layers != px:
+                raise ValueError(f"pixel stream {px} not K*side^2*3 (K={self.total_layers})")
+            self.width = self.height = side
+            self.bitmaps = np.frombuffer(stream1, np.uint8).reshape(
+                self.total_layers, side, side, 3
+            )
+        else:  # FORMAT_WEBP: K records of [uint8 flag][uint32 BE length][lossless WEBP]
+            layers = []
+            side = None
+            for i in range(self.total_layers):
+                length = unpack(">I", data[pos + 1 : pos + 5])[0]  # data[pos] = reserved flag
+                webp = data[pos + 5 : pos + 5 + length]
+                pos += 5 + length
+                arr = np.array(Image.open(io.BytesIO(webp)).convert("RGB"), np.uint8)
+                if side is None:
+                    side = arr.shape[0]
+                if arr.shape != (side, side, 3):
+                    raise ValueError(f"layer {i}: expected {side}x{side} RGB, got {arr.shape}")
+                layers.append(arr)
+            self.width = self.height = side
+            self.bitmaps = np.stack(layers)
+
         # Split into per-frame layer stacks (bottom -> top).
         self.frames = []
         idx = 0
@@ -157,13 +169,13 @@ class DivoomLayerFile:
         return np.clip(np.round(canvas), 0, 255).astype(np.uint8)
 
     def report(self) -> str:
+        pixel_kind = "raw RGB (zstd)" if self.format == FORMAT_RAW_RGB else "lossless WEBP"
         lines = [
-            f"format            : 0x27 (39)  Divoom layer file",
+            f"format            : 0x{self.format:02x} ({self.format})  Divoom layer file",
             f"canvas            : {self.width}x{self.height}",
             f"frames            : {self.num_frames}",
             f"total layers (K)  : {self.total_layers}",
-            f"stream0 (table)   : {self.streams_meta[0][1]} bytes (zstd {self.streams_meta[0][0]})",
-            f"stream1 (pixels)  : {self.streams_meta[1][1]} bytes (zstd {self.streams_meta[1][0]})",
+            f"pixel encoding    : {pixel_kind}",
             f"layers per frame  : {[f['num_layers'] for f in self.frames_meta]}",
         ]
         return "\n".join(lines)
