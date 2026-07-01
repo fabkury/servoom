@@ -105,6 +105,10 @@ layer.save_to_psd("out/example.psd")   # needs: pip install pytoshop
 layer.save_to_webp("out/example.webp") # composited animation
 ```
 
+Command-line tools and the full format write-up live in [`layer-tools/`](layer-tools/):
+`divoom_layer_decoder.py` (self-contained decoder), `layers_to_psd.py` (layer → PSD), and
+`LAYER_FILE_FORMAT.md` (the reverse-engineered 0x27 container spec).
+
 ### Smoke test
 
 The repository includes a tiny regression script that exercises the decoder against the bundled reference assets:
