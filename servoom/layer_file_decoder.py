@@ -131,6 +131,89 @@ class LayerBean(object):
         """Composite and save an animated lossless WebP (delegates to ``PixelBean``)."""
         self.to_pixel_bean(speed=speed).save_to_webp(output_path, **kwargs)
 
+    def save_to_psd(
+        self,
+        output_path: str,
+        all_frames_visible: bool = True,
+        compression: str = "zip",
+    ) -> None:
+        """Export to a layered PSD that GIMP (and Photoshop) can open with layers intact.
+
+        Each animation frame becomes a layer *group* (``frameNNN``); inside it, one PSD
+        layer per Divoom layer. Preserved:
+
+        * per-layer **opacity** (descriptor byte[1]),
+        * the **hidden** flag (descriptor byte[0]) -> PSD layer visibility,
+        * **black = transparent** -> each layer gets an alpha channel (0 where black).
+
+        Stacking is bottom -> top: frame 0 is the bottom-most group and, within each
+        frame, layer 0 is the bottom-most layer -- matching the Divoom paint order.
+
+        Args:
+            output_path: destination ``.psd`` path.
+            all_frames_visible: if True (default) every frame group is visible; if False
+                only the first frame's group is visible (handy for editing one frame).
+            compression: PSD channel compression -- ``"zip"`` (default), ``"raw"`` or
+                ``"rle"``. ``"zip"`` is recommended.
+
+        Requires the optional ``pytoshop`` package (``pip install pytoshop``).
+        """
+        try:
+            from pytoshop.user import nested_layers
+            from pytoshop import enums
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "PSD export requires the 'pytoshop' package. Install it with "
+                "'pip install pytoshop'."
+            ) from exc
+
+        comp_map = {
+            "zip": enums.Compression.zip,
+            "raw": enums.Compression.raw,
+            "rle": enums.Compression.rle,
+        }
+        if compression not in comp_map:
+            raise ValueError(f"compression must be one of {sorted(comp_map)}")
+
+        def _image_layer(name, rgb, opacity, visible):
+            # Divoom treats black (0,0,0) as transparent -> derive an alpha channel.
+            alpha = (np.any(rgb != 0, axis=2).astype(np.uint8)) * 255
+            channels = {
+                0: np.ascontiguousarray(rgb[:, :, 0]),
+                1: np.ascontiguousarray(rgb[:, :, 1]),
+                2: np.ascontiguousarray(rgb[:, :, 2]),
+                -1: alpha,  # transparency channel
+            }
+            return nested_layers.Image(
+                name=name, visible=visible, opacity=opacity,
+                top=0, left=0, bottom=self._height, right=self._width,
+                channels=channels, color_mode=enums.ColorMode.rgb,
+            )
+
+        # pytoshop/PSD order: the FIRST list element is the TOP of the stack, so reverse
+        # both levels to place frame 0 / layer 0 at the bottom.
+        groups = []
+        for f in range(self.num_frames):
+            items = []
+            for li, meta in enumerate(self._frames_meta[f]["layers"]):
+                rgb = self._frame_layers[f][li]
+                tag = "_HIDDEN" if meta["hidden"] else ""
+                name = f"f{f:03d}_l{li:02d}_op{meta['opacity']:03d}{tag}"
+                items.append(_image_layer(name, rgb, meta["opacity"], not meta["hidden"]))
+            group_visible = True if all_frames_visible else (f == 0)
+            groups.append(nested_layers.Group(
+                name=f"frame{f:03d}", layers=list(reversed(items)),
+                closed=True, visible=group_visible,
+            ))
+
+        psd = nested_layers.nested_layers_to_psd(
+            list(reversed(groups)),
+            color_mode=enums.ColorMode.rgb,
+            compression=comp_map[compression],
+        )
+        with open(output_path, "wb") as fh:
+            psd.write(fh)
+
     def __repr__(self) -> str:
         return (f"LayerBean({self._width}x{self._height}, frames={self.num_frames}, "
                 f"layers={self.total_layers})")

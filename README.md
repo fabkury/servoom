@@ -23,18 +23,22 @@ A browser-based companion lives in `docs/` and is continuously deployed to Cloud
 - Authenticate against the Divoom cloud API.
 - Fetch uploads, likes, tag metadata, and feeds via `DivoomClient`.
 - Download animation binaries and convert them to WebP or PIL images through `PixelBeanDecoder`, covering Divoom formats 9, 17, 18, 26, 31, 42, and 43.
+- Decode Divoom **layer files** (format 0x27) into their component layers via `LayerFileDecoder`, and export them to an animated WebP or a **layered PSD** (openable in GIMP/Photoshop with per-layer opacity, visibility and per-frame groups).
 - Batch pipelines that export CSV snapshots (`servoom.cli`) and sample smoke tests (`run_tests.py`).
 - Reference assets and comparison scripts for regression-testing new decoder logic.
 
 ## Requirements
 - Python 3.10 or newer (tested on CPython).
 - Packages: `requests`, `numpy`, `pillow`, `pandas`, `tqdm`, `lzallright`, `pycryptodome`, `zstandard`.
+- Optional: `pytoshop` — only needed for exporting layer files to PSD (`LayerBean.save_to_psd`).
 
 ## Installation
 
 Just install the package dependencies:
 ```powershell
 pip install requests numpy pillow pandas tqdm lzallright pycryptodome zstandard
+# optional, for PSD export of layer files:
+pip install pytoshop
 ```
 
 ## Configure Credentials
@@ -79,6 +83,21 @@ from servoom.pixel_bean_decoder import PixelBeanDecoder
 
 bean = PixelBeanDecoder.decode_file("downloads/401553003/4130000_example.dat")
 bean.save_to_webp("out/example.webp")
+```
+
+### Layer files (decode and export to PSD)
+
+Divoom "layer files" (referenced by `LayerFileId` in gallery metadata) are the editable,
+layered source for an artwork. Decode one and export it to a layered PSD for GIMP/Photoshop
+— each animation frame becomes a layer group, with per-layer opacity and visibility (the
+"hide" flag) preserved and black treated as transparent:
+
+```python
+from servoom.layer_file_decoder import LayerFileDecoder
+
+layer = LayerFileDecoder.decode_file("downloads/12345_layer.dat")
+layer.save_to_psd("out/example.psd")   # needs: pip install pytoshop
+layer.save_to_webp("out/example.webp") # composited animation
 ```
 
 ### Smoke test
