@@ -2,8 +2,6 @@
 requests
 numpy
 pillow
-pandas
-tqdm
 lzallright
 pycryptodome
 zstandard

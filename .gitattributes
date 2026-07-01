@@ -1,0 +1,4 @@
+# Force LF for Python and the sync script so the generated browser copies are byte-stable
+# across platforms and the CI drift check (git diff --exit-code) is deterministic.
+*.py text eol=lf
+*.mjs text eol=lf
