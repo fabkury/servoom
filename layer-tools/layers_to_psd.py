@@ -24,7 +24,7 @@ import os
 import sys
 
 # Allow running straight from the repo without installing the package.
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from servoom import LayerFileDecoder  # noqa: E402
 
 

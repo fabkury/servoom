@@ -28,8 +28,7 @@ There are exactly two streams:
 Compositing (matches the app): the colour black ``(0,0,0)`` is transparent; layers are
 painted bottom -> top over a black canvas and alpha-blended with ``opacity/255``.
 
-See ``sandbox/divoom-recommended-metadata/LAYER_FORMAT_FINDINGS.md`` for the full
-reverse-engineering write-up and validation.
+See ``layer-tools/LAYER_FILE_FORMAT.md`` for the full reverse-engineering write-up.
 """
 
 import math
