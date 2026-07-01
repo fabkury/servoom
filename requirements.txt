@@ -1,0 +1,12 @@
+# Core dependencies
+requests
+numpy
+pillow
+pandas
+tqdm
+lzallright
+pycryptodome
+zstandard
+
+# Optional: only needed to export layer files to PSD (LayerBean.save_to_psd)
+pytoshop
