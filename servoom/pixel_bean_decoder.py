@@ -1658,9 +1658,9 @@ class PixelBeanDecoder(object):
             return decoded_bean
         elif file_format_enum == FileFormat.ANIM_FORMAT_0x29:
             return Format41Decoder(fp).decode()
-        elif file_format == FileFormat.ANIM_FORMAT_0x1F:
+        elif file_format_enum == FileFormat.ANIM_FORMAT_0x1F:
             return Decoder0x1F(fp).decode()
-        elif file_format == FileFormat.ANIM_CONTAINER_ZSTD:
+        elif file_format_enum == FileFormat.ANIM_CONTAINER_ZSTD:
             return AnimZstdRawRGBDecoder(fp).decode()
-        elif file_format == FileFormat.ANIM_EMBEDDED_IMAGE:
+        elif file_format_enum == FileFormat.ANIM_EMBEDDED_IMAGE:
             return AnimEmbeddedImageDecoder(fp).decode()
