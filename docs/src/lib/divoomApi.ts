@@ -10,6 +10,7 @@ export interface GalleryInfo {
   FileName: string;
   FileType: number;
   FileURL?: string;
+  LayerFileId?: string;
   Classify: number;
   Date: number;
   LikeCnt: number;
