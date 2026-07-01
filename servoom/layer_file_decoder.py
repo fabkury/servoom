@@ -18,7 +18,9 @@ There are exactly two streams:
 
 * **stream 0 - layer table**: for each animation frame ``uint8 num_layers``,
   ``uint8 flag`` (unconfirmed; likely the editor's active-layer index), then
-  ``num_layers`` x 6-byte descriptors whose ``byte[1]`` is the layer OPACITY (0-255).
+  ``num_layers`` x 6-byte descriptors where ``byte[0]`` is the HIDDEN flag
+  (nonzero => layer hidden, excluded from the composite) and ``byte[1]`` is the
+  layer OPACITY (0-255).
 * **stream 1 - pixels**: ``K`` layer bitmaps, each ``side*side*3`` bytes of raw 24-bit
   RGB, ordered frame-major (bottom -> top). The canvas is square, so
   ``side = sqrt(len(stream1) / (3*K))``.
@@ -98,12 +100,17 @@ class LayerBean(object):
 
     # -- compositing --------------------------------------------------------
     def composite_frame(self, frame: int) -> np.ndarray:
-        """Alpha-composite ``frame`` (black = transparent, bottom -> top) to ``(H, W, 3)``."""
+        """Alpha-composite ``frame`` (black = transparent, bottom -> top) to ``(H, W, 3)``.
+
+        Layers flagged hidden (descriptor ``byte[0]`` nonzero) are skipped.
+        """
         layers = self._frame_layers[frame]
-        opacities = [ly["opacity"] for ly in self._frames_meta[frame]["layers"]]
+        metas = self._frames_meta[frame]["layers"]
         canvas = np.zeros((self._height, self._width, 3), dtype=float)
-        for layer, opacity in zip(layers, opacities):
-            alpha = opacity / 255.0
+        for layer, meta in zip(layers, metas):
+            if meta["hidden"]:
+                continue
+            alpha = meta["opacity"] / 255.0
             mask = np.any(layer != 0, axis=2)  # non-black pixels are painted
             canvas[mask] = layer[mask].astype(float) * alpha + canvas[mask] * (1.0 - alpha)
         return np.clip(np.round(canvas), 0, 255).astype(np.uint8)
@@ -221,7 +228,11 @@ class LayerFileDecoder(object):
             for _ in range(num_layers):
                 desc = table[pos: pos + DESCRIPTOR_SIZE]
                 pos += DESCRIPTOR_SIZE
-                layers.append({"opacity": desc[1], "descriptor": desc.hex()})
+                layers.append({
+                    "hidden": desc[0] != 0,   # byte[0]: nonzero => layer hidden
+                    "opacity": desc[1],       # byte[1]: 0-255
+                    "descriptor": desc.hex(),
+                })
             frames.append({"num_layers": num_layers, "flag": flag, "layers": layers})
         if pos != len(table):
             raise ValueError(
