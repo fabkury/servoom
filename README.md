@@ -135,8 +135,6 @@ byte-for-byte unchanged (plus synthetic files for formats the samples don't cove
 
 ```powershell
 python -m pytest tests
-# or the equivalent launcher:
-python run_tests.py
 ```
 
 ## Repository Guide
@@ -149,7 +147,6 @@ python run_tests.py
 - `servoom/gallery_reference.py` – preserved reverse-engineering notes (gallery enums,
   record mappers, experimental endpoints); not wired into live code.
 - `reference-animations/` – sample binary assets used by the tests.
-- `REFACTOR.md` – the structure/rationale for the current layout.
 
 ## Troubleshooting
 - **`ImportError: No module named lzallright`** – install the `lzallright` package from PyPI (Windows wheels are available).
