@@ -114,7 +114,9 @@ bean.save_to_webp("out/example.webp")
 Divoom "layer files" (referenced by `LayerFileId` in gallery metadata) are the editable,
 layered source for an artwork. Decode one and export it to a layered PSD for GIMP/Photoshop
 — each animation frame becomes a layer group, with per-layer opacity and visibility (the
-"hide" flag) preserved and black treated as transparent:
+"hide" flag) preserved and black treated as transparent. Since black is the chroma key,
+every frame group also carries an opaque black background layer (`fNNN_bg`) at its bottom,
+so pixels left transparent in all layers render black exactly as the Divoom app shows them:
 
 ```python
 from servoom.layer_file_decoder import LayerFileDecoder

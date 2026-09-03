@@ -4,8 +4,10 @@ Photoshop can open with layers intact.
 
 Thin CLI over servoom.LayerFileDecoder + LayerBean.save_to_psd(): each animation frame
 becomes a layer group; inside it, one PSD layer per Divoom layer. Per-layer opacity and
-the hidden flag are preserved, black is treated as transparent, and stacking is
-bottom -> top (frame 0 and layer 0 at the bottom), matching the Divoom paint order.
+the hidden flag are preserved, black is treated as transparent, and every frame group
+gets an opaque black background layer at its bottom (black is the chroma key, so pixels
+transparent in all layers must render black). Stacking is bottom -> top (frame 0, then
+the black background, then layer 0 at the bottom), matching the Divoom paint order.
 
 Requires ``pytoshop`` in addition to the servoom dependencies:
     pip install pytoshop

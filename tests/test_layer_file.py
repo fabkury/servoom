@@ -90,3 +90,66 @@ def test_hidden_layer_excluded_from_composite():
 def test_rejects_non_layer_file():
     with pytest.raises(ValueError, match=r"0x27/0x28"):
         LayerFileDecoder.decode_bytes(bytes([0x1A, 0, 0, 0, 0]))
+
+
+def _read_psd_groups(fh):
+    """Return the PSD's top-level groups as bottom -> top (pytoshop lists top first).
+
+    ``fh`` must stay open while the result is used: pytoshop reads channel pixels lazily.
+    """
+    pytoshop = pytest.importorskip("pytoshop")
+    from pytoshop.user import nested_layers
+
+    return list(reversed(nested_layers.psd_to_nested_layers(pytoshop.read(fh))))
+
+
+def _channel(layer, idx) -> np.ndarray:
+    return np.asarray(layer.channels[idx].image)
+
+
+@pytest.mark.parametrize("all_frames_visible", [True, False], ids=["all-visible", "frame0-only"])
+def test_save_to_psd_structure(tmp_path, all_frames_visible):
+    pytest.importorskip("pytoshop")
+    l0, l1 = _sample_layers()
+    # frame 0: opaque red + hidden half-opacity green; frame 1: green at opacity 200.
+    frames = [[(False, 255), (True, 128)], [(False, 200)]]
+    layer = LayerFileDecoder.decode_bytes(_build_0x27(frames, [l0, l1, l1]))
+
+    out = tmp_path / "out.psd"
+    layer.save_to_psd(str(out), all_frames_visible=all_frames_visible)
+    with open(out, "rb") as fh:
+        _check_psd_structure(_read_psd_groups(fh), frames, l0, l1, all_frames_visible)
+
+
+def _check_psd_structure(groups, frames, l0, l1, all_frames_visible):
+
+    # One group per frame, frame 0 at the bottom; visibility follows all_frames_visible.
+    assert [g.name for g in groups] == ["frame000", "frame001"]
+    assert [g.visible for g in groups] == [True, all_frames_visible]
+
+    expected_names = [
+        ["f000_bg", "f000_l00_op255", "f000_l01_op128_HIDDEN"],
+        ["f001_bg", "f001_l00_op200"],
+    ]
+    expected_sources = [[None, l0, l1], [None, l1]]
+    for group, names, sources, meta in zip(groups, expected_names, expected_sources, frames):
+        layers = list(reversed(group.layers))  # bottom -> top
+        assert [l.name for l in layers] == names
+        for psd_layer in layers:
+            assert (psd_layer.top, psd_layer.left, psd_layer.bottom, psd_layer.right) == (0, 0, SIDE, SIDE)
+
+        # Black is the chroma key: every group sits on an opaque, visible black background.
+        bg = layers[0]
+        assert bg.visible and bg.opacity == 255
+        for ch in (0, 1, 2):
+            assert not _channel(bg, ch).any()
+        assert np.all(_channel(bg, -1) == 255)
+
+        # Divoom layers keep their RGB, opacity and hidden flag; black -> alpha 0.
+        for psd_layer, src, (hidden, opacity) in zip(layers[1:], sources[1:], meta):
+            rgb = np.dstack([_channel(psd_layer, ch) for ch in (0, 1, 2)])
+            assert np.array_equal(rgb, src)
+            painted = np.any(src != 0, axis=2)
+            assert np.array_equal(_channel(psd_layer, -1) == 255, painted)
+            assert psd_layer.opacity == opacity
+            assert psd_layer.visible is (not hidden)

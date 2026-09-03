@@ -152,8 +152,13 @@ class LayerBean(object):
         * the **hidden** flag (descriptor byte[0]) -> PSD layer visibility,
         * **black = transparent** -> each layer gets an alpha channel (0 where black).
 
+        Because black is the chroma key, every frame group also gets an opaque black
+        background layer (``fNNN_bg``) at its bottom, so pixels that are transparent in
+        all of a frame's layers render black -- exactly as the Divoom app composites them.
+
         Stacking is bottom -> top: frame 0 is the bottom-most group and, within each
-        frame, layer 0 is the bottom-most layer -- matching the Divoom paint order.
+        frame, the black background is the bottom-most layer followed by layer 0 --
+        matching the Divoom paint order.
 
         Args:
             output_path: destination ``.psd`` path.
@@ -181,9 +186,10 @@ class LayerBean(object):
         if compression not in comp_map:
             raise ValueError(f"compression must be one of {sorted(comp_map)}")
 
-        def _image_layer(name, rgb, opacity, visible):
+        def _image_layer(name, rgb, opacity, visible, alpha=None):
             # Divoom treats black (0,0,0) as transparent -> derive an alpha channel.
-            alpha = (np.any(rgb != 0, axis=2).astype(np.uint8)) * 255
+            if alpha is None:
+                alpha = (np.any(rgb != 0, axis=2).astype(np.uint8)) * 255
             channels = {
                 0: np.ascontiguousarray(rgb[:, :, 0]),
                 1: np.ascontiguousarray(rgb[:, :, 1]),
@@ -198,9 +204,14 @@ class LayerBean(object):
 
         # pytoshop/PSD order: the FIRST list element is the TOP of the stack, so reverse
         # both levels to place frame 0 / layer 0 at the bottom.
+        black = np.zeros((self._height, self._width, 3), dtype=np.uint8)
+        opaque = np.full((self._height, self._width), 255, dtype=np.uint8)
+
         groups = []
         for f in range(self.num_frames):
-            items = []
+            # Black is the chroma key: an opaque black background under each frame's
+            # layers makes fully-transparent pixels render black, like the Divoom app.
+            items = [_image_layer(f"f{f:03d}_bg", black, 255, True, alpha=opaque)]
             for li, meta in enumerate(self._frames_meta[f]["layers"]):
                 rgb = self._frame_layers[f][li]
                 tag = "_HIDDEN" if meta["hidden"] else ""

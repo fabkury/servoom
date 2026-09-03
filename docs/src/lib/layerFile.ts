@@ -173,8 +173,11 @@ function pad(value: number, width: number): string {
 /**
  * Build a layered PSD from a Divoom layer file. Each animation frame becomes a layer
  * group; within it, one layer per Divoom layer. Per-layer opacity and the hidden flag
- * are preserved, and black is treated as transparent. Stacking is bottom -> top (frame 0
- * and layer 0 at the bottom), matching the Divoom paint order.
+ * are preserved, and black is treated as transparent. Because black is the chroma key,
+ * every frame group also gets an opaque black background layer (fNNN_bg) at its bottom,
+ * so pixels transparent in all of a frame's layers render black like in the Divoom app.
+ * Stacking is bottom -> top (frame 0 and the black background at the bottom, then
+ * layer 0), matching the Divoom paint order.
  */
 export async function layerFileToPsd(
   data: Uint8Array,
@@ -189,7 +192,20 @@ export async function layerFileToPsd(
   let layerIndex = 0;
   for (let f = 0; f < decoded.numFrames; f += 1) {
     const frameMeta = decoded.frames[f];
-    const children: Layer[] = [];
+    // Black is the chroma key: an opaque black background under each frame's layers
+    // makes fully-transparent pixels render black, like the Divoom app.
+    const bg = new Uint8ClampedArray(side * side * 4);
+    for (let o = 3; o < bg.length; o += 4) bg[o] = 255;
+    const children: Layer[] = [
+      {
+        name: `f${pad(f, 3)}_bg`,
+        opacity: 1,
+        hidden: false,
+        left: 0,
+        top: 0,
+        imageData: new ImageData(bg, side, side),
+      },
+    ];
     for (let li = 0; li < frameMeta.numLayers; li += 1) {
       const meta = frameMeta.layers[li];
       const base = (layerIndex + li) * frameSize;

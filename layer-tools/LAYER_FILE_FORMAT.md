@@ -159,8 +159,12 @@ The finalized decoders built from these findings:
 
 * `servoom.LayerFileDecoder` / `servoom.LayerBean` (Python package) — decode a layer file
   and export a composited WebP (`save_to_webp`) or a layered PSD (`save_to_psd`).
+  In the PSD, each frame is a group (`frameNNN`) whose bottom-most layer is an opaque
+  black background (`fNNN_bg`): black is the chroma key, so pixels transparent in every
+  layer must still render black, as in the app. Above it come the Divoom layers
+  (`fNNN_lLL_opOOO[_HIDDEN]`) with black mapped to alpha 0.
 * `docs/src/lib/layerFile.ts` — the same decode + PSD export in the browser (used by the
-  web app at servoom.pages.dev).
+  web app at servoom.pages.dev); produces the same layer structure.
 * `layer-tools/divoom_layer_decoder.py` — self-contained CLI (needs only the `.dat`;
   deps: numpy, zstandard, pillow):
   * `python divoom_layer_decoder.py <layer.dat> --out DIR [--layers]`
