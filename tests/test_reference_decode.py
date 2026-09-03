@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import subprocess
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -56,10 +57,29 @@ def test_reference_asset_decodes_identically(rel_path: str) -> None:
     assert got == expected
 
 
+def _bundled_reference_dats() -> set[str]:
+    """Repo-relative paths of the reference ``.dat`` files that ship with the repo.
+
+    Only *tracked* files count: scratch downloads dropped under ``reference-animations/``
+    (git-ignored, e.g. ``*/downloads/``) are local-only and must not fail the guard. Falls
+    back to a filesystem scan when the tree is not a git checkout (e.g. an sdist).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "-z", "--", "reference-animations"],
+            cwd=REPO_ROOT, capture_output=True, check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return {
+            p.relative_to(REPO_ROOT).as_posix()
+            for p in (REPO_ROOT / "reference-animations").rglob("*.dat")
+        }
+    return {
+        path for path in out.decode("utf-8").split("\0")
+        if path.endswith(".dat")
+    }
+
+
 def test_baseline_covers_every_reference_dat() -> None:
     """Guard against silently dropping coverage: every bundled .dat must be in the baseline."""
-    on_disk = {
-        p.relative_to(REPO_ROOT).as_posix()
-        for p in (REPO_ROOT / "reference-animations").rglob("*.dat")
-    }
-    assert on_disk == set(BASELINE)
+    assert _bundled_reference_dats() == set(BASELINE)
