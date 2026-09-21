@@ -23,7 +23,7 @@ import pytest
 from servoom.layer_file_decoder import LayerFileDecoder
 from servoom.pixel_bean_decoder import PixelBeanDecoder
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent  # python/tests -> repo root
 BASELINE = json.loads((Path(__file__).parent / "reference_baseline.json").read_text("utf-8"))
 
 

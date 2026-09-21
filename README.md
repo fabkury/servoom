@@ -19,8 +19,8 @@ The project offers a CLI workflow, decoding utilities that understand the format
 
 A browser-based companion lives in `docs/` and is continuously deployed to Cloudflare R2: https://servoom.pages.dev/. The site mirrors a subset of the Python tooling. Log in with your credentials, browse categories or users, decode previews, and export WebP/GIF/DAT bundles straight from the browser. To work on it locally, `cd docs && npm install && npm run dev`. Comments and likes are not available on the web interface. Use https://github.com/tidyhf/Pixoo64-Advanced-Tools for a desktop browser of comments and likes.
 
-The site runs the **same** decoder in the browser via Pyodide. `servoom/pixel_bean.py` and
-`servoom/pixel_bean_decoder.py` are the single source of truth; `docs/scripts/sync-python.mjs`
+The site runs the **same** decoder in the browser via Pyodide. `python/servoom/pixel_bean.py` and
+`python/servoom/pixel_bean_decoder.py` are the single source of truth; `docs/scripts/sync-python.mjs`
 copies them into `docs/src/python/` (committed, auto-generated). The copy runs automatically
 on `npm run dev`/`npm run build`, and CI fails if the committed copies drift.
 
@@ -41,7 +41,7 @@ on `npm run dev`/`npm run build`, and CI fails if the committed copies drift.
 
 Install the package dependencies (including the optional `pytoshop` for PSD export):
 ```powershell
-pip install -r requirements.txt
+pip install -r python/requirements.txt
 ```
 
 Or install them explicitly:
@@ -81,9 +81,10 @@ Keep your `credentials.py` out of the Internet.
 
 ## How to use
 
-The CLI (`python -m servoom --help`) covers the common flows:
+The CLI (`python -m servoom --help`, run from the `python/` directory) covers the common flows:
 
 ```powershell
+cd python
 # Decode a local .dat (or a whole folder) to WebP (or GIF with -f gif)
 python -m servoom decode downloads/4130000_example.dat -o out
 python -m servoom decode downloads/ -o out
@@ -126,7 +127,7 @@ layer.save_to_psd("out/example.psd")   # needs: pip install pytoshop
 layer.save_to_webp("out/example.webp") # composited animation
 ```
 
-Command-line tools and the full format write-up live in [`layer-tools/`](layer-tools/):
+Command-line tools and the full format write-up live in [`python/layer-tools/`](python/layer-tools/):
 `divoom_layer_decoder.py` (self-contained decoder), `layers_to_psd.py` (layer → PSD), and
 `LAYER_FILE_FORMAT.md` (the reverse-engineered 0x27 container spec).
 
@@ -136,17 +137,18 @@ The `pytest` suite decodes every bundled reference asset and asserts the output 
 byte-for-byte unchanged (plus synthetic files for formats the samples don't cover):
 
 ```powershell
+cd python
 python -m pytest tests
 ```
 
 ## Repository Guide
-- `servoom/client.py` – high-level API client (auth, fetch, search, download).
-- `servoom/http.py` – HTTP transport + the single pagination loop.
-- `servoom/pixel_bean_decoder.py` – decoders for each known `.dat` container (also the
+- `python/servoom/client.py` – high-level API client (auth, fetch, search, download).
+- `python/servoom/http.py` – HTTP transport + the single pagination loop.
+- `python/servoom/pixel_bean_decoder.py` – decoders for each known `.dat` container (also the
   canonical source for the web decoder — see below).
-- `servoom/layer_file_decoder.py` – the 0x27 layer-file decoder and `LayerBean`.
-- `servoom/cli.py` – the `python -m servoom` command-line interface.
-- `servoom/gallery_reference.py` – preserved reverse-engineering notes (gallery enums,
+- `python/servoom/layer_file_decoder.py` – the 0x27 layer-file decoder and `LayerBean`.
+- `python/servoom/cli.py` – the `python -m servoom` command-line interface.
+- `python/servoom/gallery_reference.py` – preserved reverse-engineering notes (gallery enums,
   record mappers, experimental endpoints); not wired into live code.
 - `reference-animations/` – sample binary assets used by the tests.
 
