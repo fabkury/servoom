@@ -5,21 +5,25 @@ layer files covering every container format the decoders support, together with 
 **Python** decoders produce for each of them. The C library (`c/tests/test_corpus.c`) is
 tested for byte-identical output against it.
 
-The artwork payloads belong to Divoom users and are **not committed** (`corpus/files/` is
-git-ignored). What the repository tracks is enough to rebuild the exact same set:
+The corpus is **local-only**. The artworks belong to Divoom users, so neither the payloads
+nor the manifest that lists them (gallery ids, cloud file ids, titles, author ids) is
+published; only the tooling is tracked. Everything below is git-ignored except `corpus.py`:
 
 | File            | Tracked | Contents                                                      |
 |-----------------|---------|---------------------------------------------------------------|
-| `manifest.json` | yes     | every file: gallery id, cloud file id, format byte, size, SHA-256 |
-| `baseline.json` | yes     | per file: frames, canvas, speed, SHA-256 of all decoded RGB bytes (layer files also hash the layer table and raw bitmaps) |
+| `manifest.json` | no      | every file: gallery id, cloud file id, format byte, size, SHA-256 |
+| `baseline.json` | no      | per file: frames, canvas, speed, SHA-256 of all decoded RGB bytes (layer files also hash the layer table and raw bitmaps) |
 | `files/`        | no      | the payloads, as `files/fmtNN/<galleryid>.dat` or `files/layerNN/<galleryid>.dat` |
 | `corpus.py`     | yes     | the tool that builds, fetches, verifies and baselines the corpus |
+
+Without a local corpus the C and Python corpus tests are skipped; the synthetic tests
+still cover every format. To build your own corpus, see "Extending the corpus".
 
 Current contents: 448 files (105 MB) -- 114 x format 9, 34 x 17, 40 x 18, 60 x 26, 40 x 31,
 40 x 42, 40 x 43, 40 x layer 0x27, 40 x layer 0x28. Format 41 has no known live sample (see
 `c/README.md`). Baseline: 0 oracle errors.
 
-## Getting the payloads
+## Getting the payloads (if you have a manifest)
 
 Set Divoom credentials (`SERVOOM_EMAIL` + `SERVOOM_PASSWORD`, or `SERVOOM_MD5_PASSWORD`,
 or a git-ignored `python/credentials.py`) and run:

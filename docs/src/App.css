@@ -48,12 +48,10 @@ body {
 }
 
 .flag-icon {
-  width: 70%;
-  height: 70%;
-  border-radius: 50%;
-  object-fit: cover;
   display: block;
-  margin: 0 auto;
+  font-size: 1.25rem;
+  line-height: 1;
+  text-align: center;
 }
 
 .language-button.active {

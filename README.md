@@ -18,7 +18,7 @@ The repository hosts three independent "verticals" plus a shared reference corpu
 | `python/`  | the `servoom` Python library and CLI (cloud client + decoders), tests, layer tools |
 | `docs/`    | the browser app deployed at https://servoom.pages.dev/ (runs the Python decoders via Pyodide) |
 | `c/`       | the same library in C99: all decoders + cloud client, see [`c/README.md`](c/README.md) |
-| `corpus/`  | the shared reference corpus (manifest + Python-decoder baseline; payloads are fetched, not committed), see [`corpus/README.md`](corpus/README.md) |
+| `corpus/`  | tooling for the shared reference corpus (local-only: the artworks belong to Divoom users and are not published), see [`corpus/README.md`](corpus/README.md) |
 
 ## Overview
 
@@ -40,8 +40,7 @@ on `npm run dev`/`npm run build`, and CI fails if the committed copies drift.
 - Fetch uploads, likes, tag metadata, and feeds via `DivoomClient`.
 - Download animation binaries and convert them to WebP/GIF or PIL images through `PixelBeanDecoder`, covering Divoom formats 9, 17, 18, 26, 31, 41, 42, and 43.
 - Decode Divoom **layer files** (format 0x27) into their component layers via `LayerFileDecoder`, and export them to an animated WebP or a **layered PSD** (openable in GIMP/Photoshop with per-layer opacity, visibility and per-frame groups).
-- A small CLI (`python -m servoom`) for decoding and downloading, and a `pytest` suite that regression-tests the decoders against bundled reference assets.
-- Reference assets and comparison scripts for regression-testing new decoder logic.
+- A small CLI (`python -m servoom`) for decoding and downloading, and a `pytest` suite that regression-tests the decoders (synthetic files, plus a local reference corpus when present).
 
 ## Requirements
 - Python 3.10 or newer (tested on CPython).
@@ -104,8 +103,8 @@ python -m servoom decode downloads/ -o out
 python -m servoom decode-layer downloads/12345_layer.dat -o out --psd
 
 # Download + decode by gallery id, or every upload of a user (needs credentials)
-python -m servoom download 4152005 -o downloads
-python -m servoom download-user 401670591 -o downloads
+python -m servoom download GALLERY_ID -o downloads
+python -m servoom download-user USER_ID -o downloads
 ```
 
 Outputs land in `downloads/` (raw `.dat`) and `out/` (decoded `.webp`/`.gif`).
@@ -117,7 +116,7 @@ Decode a single `.dat` file into WebP from Python:
 ```python
 from servoom.pixel_bean_decoder import PixelBeanDecoder
 
-bean = PixelBeanDecoder.decode_file("downloads/401553003/4130000_example.dat")
+bean = PixelBeanDecoder.decode_file("downloads/1234567_example.dat")
 bean.save_to_webp("out/example.webp")
 ```
 
@@ -133,7 +132,7 @@ so pixels left transparent in all layers render black exactly as the Divoom app 
 ```python
 from servoom.layer_file_decoder import LayerFileDecoder
 
-layer = LayerFileDecoder.decode_file("downloads/12345_layer.dat")
+layer = LayerFileDecoder.decode_file("downloads/1234567_layer.dat")
 layer.save_to_psd("out/example.psd")   # needs: pip install pytoshop
 layer.save_to_webp("out/example.webp") # composited animation
 ```
@@ -144,8 +143,9 @@ Command-line tools and the full format write-up live in [`python/layer-tools/`](
 
 ### Tests
 
-The `pytest` suite decodes every bundled reference asset and asserts the output is
-byte-for-byte unchanged (plus synthetic files for formats the samples don't cover):
+The `pytest` suite exercises every decoder with synthetic files and, when the local
+reference corpus is present (see `corpus/README.md`), re-checks every real artwork against
+the recorded baseline:
 
 ```powershell
 cd python
@@ -161,8 +161,7 @@ python -m pytest tests
 - `python/servoom/cli.py` – the `python -m servoom` command-line interface.
 - `python/servoom/gallery_reference.py` – preserved reverse-engineering notes (gallery enums,
   record mappers, experimental endpoints); not wired into live code.
-- `reference-animations/` – sample binary assets used by the Python tests.
-- `corpus/` – the larger reference corpus shared by the Python and C test suites.
+- `corpus/` – tooling for the local-only reference corpus shared by the Python and C test suites.
 - `c/` – the C library, CLI and tests (own README).
 
 ## Troubleshooting
@@ -172,3 +171,8 @@ python -m pytest tests
 
 ## Credits
 `servoom` expands upon https://github.com/redphx/apixoo by redphx. Without redphx's seminal work, very likely this project would not be here now.
+
+## License
+
+Apache License 2.0 — see [`LICENSE`](LICENSE). The decoders build on reverse-engineering work
+from https://github.com/redphx/apixoo (MIT).

@@ -65,7 +65,7 @@ macOS should build as-is.
 #include "servoom/servoom.h"
 
 servoom_pixel_bean *bean = NULL;
-if (servoom_decode_file("4164515.dat", &bean) == SERVOOM_OK) {
+if (servoom_decode_file("1234567.dat", &bean) == SERVOOM_OK) {
     printf("%d frames, %dx%d, %d ms/frame\n",
            bean->total_frames, bean->width, bean->height, bean->speed);
     const uint8_t *rgb = servoom_pixel_bean_frame(bean, 0); /* width*height*3 */
@@ -74,7 +74,7 @@ if (servoom_decode_file("4164515.dat", &bean) == SERVOOM_OK) {
 }
 
 servoom_layer_bean *layer = NULL;
-if (servoom_layer_decode_file("4164515_layer.dat", &layer) == SERVOOM_OK) {
+if (servoom_layer_decode_file("1234567_layer.dat", &layer) == SERVOOM_OK) {
     uint8_t *frame = malloc(layer->width * layer->height * 3);
     servoom_layer_composite_frame(layer, 0, frame);        /* app-style composite */
     const uint8_t *bottom = servoom_layer_bitmap(layer, 0, 0); /* raw layer bitmap */
@@ -86,9 +86,9 @@ servoom_md5_hex(password, strlen(password), md5);
 servoom_client *c = servoom_client_new(email, md5, NULL);
 if (servoom_client_login(c) == SERVOOM_OK) {
     cJSON *info = NULL;
-    servoom_client_gallery_info(c, 4164515, &info);
+    servoom_client_gallery_info(c, 1234567, &info);
     char *path = NULL;
-    servoom_client_download_artwork(c, 4164515, "downloads", &path, NULL);
+    servoom_client_download_artwork(c, 1234567, "downloads", &path, NULL);
     cJSON_Delete(info); free(path);
 }
 servoom_client_free(c);
@@ -101,7 +101,8 @@ Decoded frames are row-major 24-bit RGB, frame-major, exactly what the Python
 Supported artwork formats: 9, 17, 18, 26 (0x0C and hierarchical 0x11/0x13/0x15 frames),
 31, 41, 42, 43 (embedded GIF or WebP). Layer files: 0x27 (raw RGB) and 0x28 (WebP layers).
 
-Coverage of the reference corpus at the time of writing (all byte-identical to Python):
+Coverage of the (local-only, unpublished) reference corpus at the time of writing, all
+byte-identical to Python:
 
 | Format | Samples | Format | Samples |
 |-------:|--------:|-------:|--------:|
@@ -156,14 +157,15 @@ Python CLI. Never commit them.
 * **test_units** — digests, the LZO1X and AES codecs, tile placement, resizing, and
   synthetic container files for every format whose expected output was produced by the
   Python decoders (`tests/vectors.h`, regenerated with `python tests/gen_vectors.py`).
-* **test_corpus** — decodes every file in the shared reference corpus (`../corpus/`) and
+* **test_corpus** — decodes every file in the local reference corpus (`../corpus/`) and
   compares frame count, canvas, speed and the SHA-256 of all decoded RGB bytes with
   `corpus/baseline.json`, the Python decoders' output. Layer files additionally compare the
-  parsed layer table and the raw layer bitmaps. Skipped (exit 77) when the corpus payloads
-  are not present locally; see `../corpus/README.md` for how to fetch them.
-* **test_live** — logs in to the Divoom cloud, fetches gallery info, runs a listing, and
-  downloads and decodes an artwork. Skipped unless `SERVOOM_EMAIL`/`SERVOOM_PASSWORD` are
-  set.
+  parsed layer table and the raw layer bitmaps. It also decodes truncated and bit-flipped
+  copies of every file, which must never crash. Skipped (exit 77) when no corpus is present;
+  the corpus is not published (see `../corpus/README.md`).
+* **test_live** — logs in to the Divoom cloud, lists the account's own uploads and a public
+  category feed, then downloads and decodes the first artwork of that feed. Skipped unless
+  `SERVOOM_EMAIL`/`SERVOOM_PASSWORD` are set.
 
 ## Dependencies and licenses
 

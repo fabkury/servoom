@@ -3,11 +3,6 @@ import type { FormEvent } from 'react';
 import SparkMD5 from 'spark-md5';
 import JSZip from 'jszip';
 import './App.css';
-import flagEN from './assets/flags/en.png';
-import flagES from './assets/flags/es.png';
-import flagCN from './assets/flags/cn.png';
-import flagJP from './assets/flags/jp.png';
-import flagRU from './assets/flags/ru.png';
 import type { GalleryInfo, Session } from './lib/divoomApi';
 import {
   ApiError,
@@ -670,11 +665,12 @@ const translations: Record<Locale, Translation> = {
 };
 
 const localeOptions: Array<{ locale: Locale; icon: string; label: string }> = [
-  { locale: 'en', icon: flagEN, label: 'English' },
-  { locale: 'es', icon: flagES, label: 'Spanish' },
-  { locale: 'zh', icon: flagCN, label: 'Chinese' },
-  { locale: 'ja', icon: flagJP, label: 'Japanese' },
-  { locale: 'ru', icon: flagRU, label: 'Russian' },
+  // Unicode flag emoji: no image assets, no licensing questions.
+  { locale: 'en', icon: '🇬🇧', label: 'English' },
+  { locale: 'es', icon: '🇪🇸', label: 'Spanish' },
+  { locale: 'zh', icon: '🇨🇳', label: 'Chinese' },
+  { locale: 'ja', icon: '🇯🇵', label: 'Japanese' },
+  { locale: 'ru', icon: '🇷🇺', label: 'Russian' },
 ];
 
 class CancelledError extends Error {
@@ -1495,7 +1491,9 @@ function App() {
                 title={option.label}
                 aria-label={option.label}
               >
-                <img src={option.icon} alt={option.label} className="flag-icon" loading="lazy" />
+                <span className="flag-icon" role="img" aria-hidden="true">
+                  {option.icon}
+                </span>
               </button>
             ))}
           </div>

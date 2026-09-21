@@ -4,8 +4,7 @@ The reference assets don't include a layer file, so these build tiny synthetic o
 both container versions:
 
 * **0x27** — pixels are one zstd stream of raw 24-bit RGB bitmaps.
-* **0x28** — pixels are per-layer lossless-WEBP records (the newer format that regressed;
-  see the layer file of gallery 4200665, "Dostoyevsky's Transformation").
+* **0x28** — pixels are per-layer lossless-WEBP records (the newer container version).
 """
 
 from __future__ import annotations

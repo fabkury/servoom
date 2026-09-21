@@ -4,7 +4,7 @@ Status: **format essentially solved.** The decoder
 (`divoom_layer_decoder.py` here, and `servoom.LayerFileDecoder` in the package) parses the
 container, recovers every layer bitmap and per-layer opacity, and re-composites the
 animation. Validated against 20 layer/artwork pairs sampled from the Recommended gallery
-(0x27), plus the 0x28 variant (gallery 4200665, "Dostoyevsky's Transformation"), whose
+(0x27), plus one 0x28 sample, whose
 composite matches the artwork render to within ~0.9 avg RGB.
 
 The layer file is the **editable, layered source** the Divoom app keeps for an artwork
