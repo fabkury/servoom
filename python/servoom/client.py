@@ -123,6 +123,16 @@ class DivoomClient:
         name = sanitize_filename(pixel_bean.file_name or f"art_{pixel_bean.gallery_id}")
         output_path = os.path.join(output_dir, f"{pixel_bean.gallery_id}_{name}.dat")
 
+        self.download_file(file_id, output_path)
+        pixel_bean.update_from_download(output_path)
+        log.info("Downloaded: %s", safe_console_text(os.path.basename(output_path)))
+        return output_path
+
+    def download_file(self, file_id: str, output_path: str) -> str:
+        """Download any cloud file (an artwork ``FileId`` or a ``LayerFileId``) to ``output_path``.
+
+        No login is required: the file server is public once the id is known.
+        """
         try:
             resp = self._session.get(f"https://{Server.FILE.value}/{file_id}", stream=True)
             resp.raise_for_status()
@@ -132,9 +142,6 @@ class DivoomClient:
                         fh.write(chunk)
         except Exception as exc:
             raise RuntimeError(f"Failed to download file: {exc}") from exc
-
-        pixel_bean.update_from_download(output_path)
-        log.info("Downloaded: %s", safe_console_text(os.path.basename(output_path)))
         return output_path
 
     def decode_art(self, pixel_bean: PixelBean) -> PixelBean:

@@ -3,3 +3,8 @@ out/
 credentials.py
 __pycache__/
 .pytest_cache/
+
+# Reference corpus payloads are local-only (see corpus/README.md); only the manifest and
+# the expected-result baseline are tracked.
+corpus/files/
+corpus/dump/
