@@ -123,6 +123,71 @@ static int check_layer(const char *path, const char *full, const cJSON *expect)
     return ok;
 }
 
+/* Robustness: truncated and bit-flipped copies of a real file must decode or fail
+ * cleanly, never crash or hang. */
+static void mutate_and_decode(const char *full, int is_layer)
+{
+    FILE *fp = fopen(full, "rb");
+    if (!fp)
+        return;
+    fseek(fp, 0, SEEK_END);
+    long n = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (n <= 0) {
+        fclose(fp);
+        return;
+    }
+    uint8_t *data = (uint8_t *)malloc((size_t)n);
+    if (!data || fread(data, 1, (size_t)n, fp) != (size_t)n) {
+        free(data);
+        fclose(fp);
+        return;
+    }
+    fclose(fp);
+    static const double cuts[] = {0.02, 0.1, 0.5, 0.9, 0.999};
+    for (size_t i = 0; i < sizeof cuts / sizeof cuts[0]; i++) {
+        size_t len = (size_t)((double)n * cuts[i]);
+        if (len == 0)
+            len = 1;
+        if (getenv("SERVOOM_MUTATE_VERBOSE")) {
+            fprintf(stderr, "  trunc %s len=%zu\n", full, len);
+            fflush(stderr);
+        }
+        if (is_layer) {
+            servoom_layer_bean *b = NULL;
+            servoom_layer_decode_memory(data, len, &b);
+            servoom_layer_bean_free(b);
+        } else {
+            servoom_pixel_bean *b = NULL;
+            servoom_decode_memory(data, len, &b);
+            servoom_pixel_bean_free(b);
+        }
+    }
+    /* deterministic bit flips at a handful of offsets */
+    uint32_t seed = 2463534242u;
+    for (int k = 0; k < 16; k++) {
+        seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+        size_t off = 1 + (size_t)(seed % (uint32_t)(n > 1 ? n - 1 : 1));
+        uint8_t saved = data[off];
+        data[off] ^= (uint8_t)(1u << (k % 8));
+        if (getenv("SERVOOM_MUTATE_VERBOSE")) {
+            fprintf(stderr, "  flip %s off=%zu bit=%d\n", full, off, k % 8);
+            fflush(stderr);
+        }
+        if (is_layer) {
+            servoom_layer_bean *b = NULL;
+            servoom_layer_decode_memory(data, (size_t)n, &b);
+            servoom_layer_bean_free(b);
+        } else {
+            servoom_pixel_bean *b = NULL;
+            servoom_decode_memory(data, (size_t)n, &b);
+            servoom_pixel_bean_free(b);
+        }
+        data[off] = saved;
+    }
+    free(data);
+}
+
 int main(void)
 {
     const char *dir = tl_corpus_dir();
@@ -166,7 +231,10 @@ int main(void)
             no_baseline++;
             continue;
         }
-        int ok = strcmp(kind, "layer") == 0 ? check_layer(rel, p, expect) : check_pixel(rel, p, expect);
+        int is_layer = strcmp(kind, "layer") == 0;
+        int ok = is_layer ? check_layer(rel, p, expect) : check_pixel(rel, p, expect);
+        if (getenv("SERVOOM_NO_MUTATE") == NULL)
+            mutate_and_decode(p, is_layer);
         if (ok)
             stats[fmt].ok++;
         else {

@@ -35,7 +35,7 @@ static servoom_status read_zstd_stream(const uint8_t *data, size_t len, size_t p
                                        uint8_t **out, size_t *out_len, size_t *next_pos)
 {
     *out = NULL;
-    if (len - pos < 8)
+    if (pos > len || len - pos < 8)
         return SERVOOM_ERR_CORRUPT; /* unpack on a short slice -> struct.error */
     uint32_t c = sv_be32(data + pos), u = sv_be32(data + pos + 4);
     size_t avail = len - pos - 8;
@@ -51,7 +51,7 @@ static servoom_status read_zstd_stream(const uint8_t *data, size_t len, size_t p
         *out = NULL;
         return SERVOOM_ERR_CORRUPT; /* 'Stream size mismatch' */
     }
-    *next_pos = pos + 8 + c;
+    *next_pos = c < avail ? pos + 8 + c : len; /* a declared size past the end clamps */
     return SERVOOM_OK;
 }
 
