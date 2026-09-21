@@ -218,7 +218,7 @@ servoom_status servoom_layer_composite_frame(const servoom_layer_bean *bean, int
     if (!bean || !out_rgb || frame < 0 || frame >= bean->num_frames)
         return SERVOOM_ERR_ARG;
     size_t npx = (size_t)bean->width * bean->height;
-    double *canvas = (double *)calloc(npx * 3 ? npx * 3 : 1, sizeof(double));
+    double *canvas = (double *)calloc(npx ? npx * 3 : 1, sizeof(double));
     if (!canvas)
         return SERVOOM_ERR_NOMEM;
     const servoom_layer_frame *fr = &bean->frames[frame];

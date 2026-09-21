@@ -9,6 +9,17 @@ Toolkit for exploring the Divoom Cloud:
  - fetch arts, likes, comments, 
  - download Divoom animations and transcode them into lossless WebP or GIF files.
 
+## Repository layout
+
+The repository hosts three independent "verticals" plus a shared reference corpus:
+
+| Directory  | What                                                                              |
+|------------|-----------------------------------------------------------------------------------|
+| `python/`  | the `servoom` Python library and CLI (cloud client + decoders), tests, layer tools |
+| `docs/`    | the browser app deployed at https://servoom.pages.dev/ (runs the Python decoders via Pyodide) |
+| `c/`       | the same library in C99: all decoders + cloud client, see [`c/README.md`](c/README.md) |
+| `corpus/`  | the shared reference corpus (manifest + Python-decoder baseline; payloads are fetched, not committed), see [`corpus/README.md`](corpus/README.md) |
+
 ## Overview
 
 `servoom` wraps the Divoom API so you can archive uploads, metadata, and turn undocumented "pixel bean" files into standard image formats such as GIF or lossless WebP.
@@ -150,7 +161,9 @@ python -m pytest tests
 - `python/servoom/cli.py` – the `python -m servoom` command-line interface.
 - `python/servoom/gallery_reference.py` – preserved reverse-engineering notes (gallery enums,
   record mappers, experimental endpoints); not wired into live code.
-- `reference-animations/` – sample binary assets used by the tests.
+- `reference-animations/` – sample binary assets used by the Python tests.
+- `corpus/` – the larger reference corpus shared by the Python and C test suites.
+- `c/` – the C library, CLI and tests (own README).
 
 ## Troubleshooting
 - **`ImportError: No module named lzallright`** – install the `lzallright` package from PyPI (Windows wheels are available).

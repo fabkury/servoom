@@ -343,7 +343,7 @@ servoom_status sv_gif_decode(const uint8_t *data, size_t len, sv_gif_anim *out)
     int dispose_kind = 0;
     uint8_t dispose_fill[4] = {0, 0, 0, 0};
     uint8_t *dispose_saved = NULL;
-    int dispose_saved_w = 0, dispose_saved_h = 0;
+    int dispose_saved_w = 0;
     palette frame_pal;
     /* The P canvas of frame 0 is kept as indices + palette until conversion. */
     uint8_t *pcanvas = NULL;
@@ -526,7 +526,6 @@ servoom_status sv_gif_decode(const uint8_t *data, size_t len, sv_gif_anim *out)
                     dispose_saved = (uint8_t *)malloc((size_t)rw * rh * 4 + 1);
                     if (!dispose_saved) { st = SERVOOM_ERR_NOMEM; goto out; }
                     dispose_saved_w = rw;
-                    dispose_saved_h = rh;
                     for (int y = 0; y < rh; y++)
                         memcpy(dispose_saved + (size_t)y * rw * 4,
                                cv.rgba + ((size_t)(r.y0 + y) * cv.w + r.x0) * 4, (size_t)rw * 4);
