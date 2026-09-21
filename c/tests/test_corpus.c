@@ -254,7 +254,7 @@ int main(void)
         if (stats[f].total)
             printf("0x%02x (%3d)  %5d %4d %9d %8d\n", f, f, stats[f].total, stats[f].ok, stats[f].mismatch,
                    stats[f].missing);
-    printf("test_corpus: %d files present of %d, %d without baseline, %d mismatch(es)\n", present, total,
-           no_baseline, failed);
+    printf("test_corpus: %d files present of %d, %d without baseline, %d mismatch(es)%s\n", present, total,
+           no_baseline, failed, getenv("SERVOOM_NO_MUTATE") ? "" : "; truncation/bit-flip pass survived");
     return failed ? 1 : 0;
 }

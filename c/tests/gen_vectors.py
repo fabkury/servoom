@@ -125,6 +125,23 @@ h, bean = pixel_hash(raw31)
 emit_bytes("FMT31_FILE", raw31)
 out.append(f'#define FMT31_HASH "{h}"')
 
+# format 41: [frames][speed BE16][row][col] + 9 reserved bytes + JPEG frames, each followed by
+# the optional 5-byte gap record (02 00 00 xx xx). No real sample of this legacy format has
+# been found on the cloud, so this synthetic file is its only coverage.
+jpegs41 = b""
+for k, col in enumerate([(30, 200, 30), (200, 200, 30), (30, 30, 30)]):
+    im = Image.new("RGB", (32, 32), col)
+    for x in range(32):
+        im.putpixel((x, (x * 3 + k) % 32), (255, 255, 255))
+    b = io.BytesIO()
+    im.save(b, format="JPEG", quality=90)
+    jpegs41 += b.getvalue() + b"\x02\x00\x00\x11\x22"
+raw41 = bytes([41]) + struct.pack(">BHBB", 3, 0, 2, 2) + b"\x00" * 9 + jpegs41
+h, bean = pixel_hash(raw41)
+assert bean.total_frames == 3 and bean.speed == 50  # speed 0 -> default 50
+emit_bytes("FMT41_FILE", raw41)
+out.append(f'#define FMT41_HASH "{h}"')
+
 # format 17 (LZO + AES): 32x32 picture
 img = np.zeros((32, 32, 3), np.uint8)
 img[4:12, 4:12] = (200, 30, 30)

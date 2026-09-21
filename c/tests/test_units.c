@@ -142,6 +142,7 @@ static void test_synthetic_formats(void)
     synthetic("fmt18", FMT18_FILE, FMT18_FILE_LEN, FMT18_HASH);
     synthetic("fmt26-solid", FMT26_SOLID_FILE, FMT26_SOLID_FILE_LEN, FMT26_SOLID_HASH);
     synthetic("fmt31", FMT31_FILE, FMT31_FILE_LEN, FMT31_HASH);
+    synthetic("fmt41", FMT41_FILE, FMT41_FILE_LEN, FMT41_HASH);
     synthetic("fmt42", FMT42_FILE, FMT42_FILE_LEN, FMT42_HASH);
     synthetic("fmt43-gif", FMT43_GIF_FILE, FMT43_GIF_FILE_LEN, FMT43_GIF_HASH);
     synthetic("fmt43-webp", FMT43_WEBP_FILE, FMT43_WEBP_FILE_LEN, FMT43_WEBP_HASH);
