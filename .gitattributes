@@ -2,3 +2,9 @@
 # across platforms and the CI drift check (git diff --exit-code) is deterministic.
 *.py text eol=lf
 *.mjs text eol=lf
+# Keep the C vertical and the corpus manifests platform-stable too.
+*.c text eol=lf
+*.h text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+corpus/*.json text eol=lf

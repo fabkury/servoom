@@ -1,6 +1,6 @@
 # AUTO-GENERATED FILE — DO NOT EDIT.
-# Copied verbatim from servoom/pixel_bean.py by docs/scripts/sync-python.mjs.
-# Edit the source in servoom/, then run:  node docs/scripts/sync-python.mjs
+# Copied verbatim from python/servoom/pixel_bean.py by docs/scripts/sync-python.mjs.
+# Edit the source in python/servoom/, then run:  node docs/scripts/sync-python.mjs
 
 from typing import Union, List, Optional, Dict
 from enum import Enum

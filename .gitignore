@@ -2,3 +2,14 @@ downloads/
 out/
 credentials.py
 __pycache__/
+.pytest_cache/
+
+# The reference corpus is local-only: the payloads are other users' artworks and the
+# manifest/baseline describe them (see corpus/README.md). Only the tool is tracked.
+corpus/files/
+corpus/dump/
+corpus/manifest.json
+corpus/baseline.json
+
+# Local scratch downloads of artworks must never be committed.
+reference-animations/
