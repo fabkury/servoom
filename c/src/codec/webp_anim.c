@@ -10,6 +10,7 @@ void sv_webp_anim_free(sv_webp_anim *anim)
     if (!anim)
         return;
     free(anim->rgba);
+    free(anim->timestamps);
     memset(anim, 0, sizeof(*anim));
 }
 
@@ -33,7 +34,11 @@ servoom_status sv_webp_decode_anim(const uint8_t *data, size_t len, sv_webp_anim
     size_t frame_bytes = (size_t)info.canvas_width * info.canvas_height * 4;
     size_t cap = frame_bytes * (info.frame_count ? info.frame_count : 1);
     uint8_t *rgba = (uint8_t *)malloc(cap);
-    if (!rgba) {
+    size_t ts_cap = info.frame_count ? info.frame_count : 1;
+    int *ts = (int *)malloc(ts_cap * sizeof(int));
+    if (!rgba || !ts) {
+        free(rgba);
+        free(ts);
         WebPAnimDecoderDelete(dec);
         return SERVOOM_ERR_NOMEM;
     }
@@ -46,15 +51,20 @@ servoom_status sv_webp_decode_anim(const uint8_t *data, size_t len, sv_webp_anim
         if ((size_t)(n + 1) * frame_bytes > cap) {
             size_t ncap = cap * 2;
             uint8_t *p = (uint8_t *)realloc(rgba, ncap);
-            if (!p) {
-                free(rgba);
+            int *q = (int *)realloc(ts, ts_cap * 2 * sizeof(int));
+            if (!p || !q) {
+                free(p ? p : rgba);
+                free(q ? q : ts);
                 WebPAnimDecoderDelete(dec);
                 return SERVOOM_ERR_NOMEM;
             }
             rgba = p;
+            ts = q;
             cap = ncap;
+            ts_cap *= 2;
         }
         memcpy(rgba + (size_t)n * frame_bytes, frame, frame_bytes);
+        ts[n] = timestamp;
         n++;
     }
     WebPAnimDecoderDelete(dec);
@@ -62,12 +72,14 @@ servoom_status sv_webp_decode_anim(const uint8_t *data, size_t len, sv_webp_anim
      * sequence is a failure there too. */
     if (n == 0 || (uint32_t)n != info.frame_count) {
         free(rgba);
+        free(ts);
         return SERVOOM_ERR_CODEC;
     }
     out->width = (int)info.canvas_width;
     out->height = (int)info.canvas_height;
     out->num_frames = n;
     out->rgba = rgba;
+    out->timestamps = ts;
     return SERVOOM_OK;
 }
 

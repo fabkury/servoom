@@ -75,6 +75,12 @@ static int check_pixel(const char *path, const char *full, const cJSON *expect)
         report(path, why);
         ok = 0;
     }
+    if (ok && servoom_has_webp_encoder() && !tl_webp_roundtrip(bean, why, sizeof why)) {
+        char msg[600];
+        snprintf(msg, sizeof msg, "webp round-trip: %s", why);
+        report(path, msg);
+        ok = 0;
+    }
     servoom_pixel_bean_free(bean);
     return ok;
 }
@@ -118,6 +124,20 @@ static int check_layer(const char *path, const char *full, const cJSON *expect)
     } else if (strcmp(c, jstr(expect, "hash") ? jstr(expect, "hash") : "") != 0) {
         report(path, "composite differs");
         ok = 0;
+    }
+    if (ok && servoom_has_webp_encoder()) {
+        /* what decode-layer writes: the composite animation at 100 ms/frame */
+        servoom_pixel_bean *pb = NULL;
+        if (servoom_layer_to_pixel_bean(bean, 100, &pb) != SERVOOM_OK) {
+            report(path, "composite -> pixel bean failed");
+            ok = 0;
+        } else if (!tl_webp_roundtrip(pb, why, sizeof why)) {
+            char msg[600];
+            snprintf(msg, sizeof msg, "composite webp round-trip: %s", why);
+            report(path, msg);
+            ok = 0;
+        }
+        servoom_pixel_bean_free(pb);
     }
     servoom_layer_bean_free(bean);
     return ok;
@@ -254,7 +274,8 @@ int main(void)
         if (stats[f].total)
             printf("0x%02x (%3d)  %5d %4d %9d %8d\n", f, f, stats[f].total, stats[f].ok, stats[f].mismatch,
                    stats[f].missing);
-    printf("test_corpus: %d files present of %d, %d without baseline, %d mismatch(es)%s\n", present, total,
-           no_baseline, failed, getenv("SERVOOM_NO_MUTATE") ? "" : "; truncation/bit-flip pass survived");
+    printf("test_corpus: %d files present of %d, %d without baseline, %d mismatch(es)%s%s\n", present, total,
+           no_baseline, failed, getenv("SERVOOM_NO_MUTATE") ? "" : "; truncation/bit-flip pass survived",
+           servoom_has_webp_encoder() ? "; webp round-trip checked" : "; webp encoder not built");
     return failed ? 1 : 0;
 }

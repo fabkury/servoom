@@ -7,6 +7,7 @@ project(servoom C)
 option(SERVOOM_WITH_CLIENT "Build the Divoom cloud client (needs libcurl, fetched)" ON)
 option(SERVOOM_BUILD_CLI "Build the servoom command-line tool" ON)
 option(SERVOOM_BUILD_TESTS "Build the test programs" ON)
+option(SERVOOM_WITH_WEBP_ENCODER "Build the lossless WebP writer (libwebp is fetched anyway)" ON)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -49,7 +50,11 @@ set(SERVOOM_SOURCES
   src/decoders/fmt42_zstd_rgb.c
   src/decoders/fmt43_embedded.c
   src/layer/layer_file.c
+  src/encode/webp_out.c
   src/error.c)
+if(SERVOOM_WITH_WEBP_ENCODER)
+  list(APPEND SERVOOM_SOURCES src/codec/webp_encode.c)
+endif()
 if(SERVOOM_WITH_CLIENT)
   list(APPEND SERVOOM_SOURCES src/client/http.c src/client/client.c)
 endif()
@@ -57,7 +62,11 @@ endif()
 add_library(servoom STATIC ${SERVOOM_SOURCES})
 target_include_directories(servoom PUBLIC include PRIVATE src)
 target_link_libraries(servoom PUBLIC servoom_vendored PRIVATE libzstd_static webp webpdemux servoom_jpeg)
-target_compile_definitions(servoom PRIVATE SERVOOM_WITH_CLIENT=$<BOOL:${SERVOOM_WITH_CLIENT}>)
+target_compile_definitions(servoom PRIVATE SERVOOM_WITH_CLIENT=$<BOOL:${SERVOOM_WITH_CLIENT}>
+  SERVOOM_WITH_WEBP_ENCODER=$<BOOL:${SERVOOM_WITH_WEBP_ENCODER}>)
+if(SERVOOM_WITH_WEBP_ENCODER)
+  target_link_libraries(servoom PRIVATE libwebpmux)
+endif()
 target_include_directories(servoom PRIVATE ${zstd_SOURCE_DIR}/lib ${libwebp_SOURCE_DIR}/src ${libwebp_SOURCE_DIR})
 if(SERVOOM_WITH_CLIENT)
   target_link_libraries(servoom PRIVATE CURL::libcurl)
@@ -83,6 +92,7 @@ if(SERVOOM_BUILD_TESTS)
     target_link_libraries(${t} PRIVATE servoom PRIVATE libzstd_static webp webpdemux)
     target_include_directories(${t} PRIVATE src ${zstd_SOURCE_DIR}/lib ${libwebp_SOURCE_DIR}/src)
     target_compile_definitions(${t} PRIVATE SERVOOM_WITH_CLIENT=$<BOOL:${SERVOOM_WITH_CLIENT}>
+      SERVOOM_WITH_WEBP_ENCODER=$<BOOL:${SERVOOM_WITH_WEBP_ENCODER}>
       SERVOOM_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
     add_test(NAME ${t} COMMAND ${t})
     set_tests_properties(${t} PROPERTIES SKIP_RETURN_CODE 77)

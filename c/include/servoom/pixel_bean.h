@@ -58,6 +58,27 @@ int servoom_format_is_artwork(int format_byte);
 servoom_status servoom_pixel_bean_write_ppm(const servoom_pixel_bean *bean, int index,
                                             const char *path);
 
+/* ---- lossless WebP output (optional, CMake option SERVOOM_WITH_WEBP_ENCODER) -------
+ *
+ * The whole animation as one animated lossless WebP, every frame lasting bean->speed ms,
+ * looping forever: what the Python `PixelBean.save_to_webp()` writes (same libwebp
+ * encoder, same settings). Pixels round-trip exactly. Two things do not: libwebp merges
+ * runs of identical consecutive frames into one longer frame, so the file can hold fewer
+ * frames than bean->total_frames (the timeline is preserved; a single frame, or all frames
+ * identical, gives a plain still WebP with no timing at all), and the byte stream is only
+ * identical to Pillow's when both link the same libwebp version.
+ *
+ * When the library is built without the encoder these return SERVOOM_ERR_UNSUPPORTED;
+ * servoom_has_webp_encoder() tells in advance. */
+int servoom_has_webp_encoder(void);
+
+/* Encode into a malloc'd buffer the caller frees with free(). */
+servoom_status servoom_pixel_bean_encode_webp(const servoom_pixel_bean *bean, uint8_t **out,
+                                              size_t *out_len);
+
+/* Encode and write to `path`. */
+servoom_status servoom_pixel_bean_write_webp(const servoom_pixel_bean *bean, const char *path);
+
 #ifdef __cplusplus
 }
 #endif

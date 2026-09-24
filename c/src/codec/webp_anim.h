@@ -9,7 +9,9 @@
 typedef struct sv_webp_anim {
     int width, height;
     int num_frames;
-    uint8_t *rgba; /* num_frames * width * height * 4, each frame fully composited on the canvas */
+    uint8_t *rgba;   /* num_frames * width * height * 4, each frame fully composited on the canvas */
+    int *timestamps; /* num_frames entries: end time of each frame in ms (frame i spans
+                        [timestamps[i-1], timestamps[i]), the first starts at 0) */
 } sv_webp_anim;
 
 servoom_status sv_webp_decode_anim(const uint8_t *data, size_t len, sv_webp_anim *out);

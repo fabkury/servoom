@@ -10,6 +10,7 @@
 #include "codec/image_seq.h"
 #include "decoders/decoders.h"
 #include "testlib.h"
+#include "codec/webp_anim.h"
 #include "vectors.h"
 
 static void test_digests(void)
@@ -221,6 +222,112 @@ static void test_layers(void)
     CHECK(1, "truncated layer files survive");
 }
 
+static void test_webp_output(void)
+{
+    servoom_pixel_bean *bean = NULL;
+    uint8_t *data = NULL;
+    size_t len = 0;
+    char why[256];
+    CHECK(servoom_decode_memory(FMT42_FILE, FMT42_FILE_LEN, &bean) == SERVOOM_OK && bean, "fmt42 decode for webp");
+    if (!bean)
+        return;
+    CHECK(servoom_pixel_bean_encode_webp(NULL, &data, &len) == SERVOOM_ERR_ARG && data == NULL, "encode NULL bean");
+    CHECK(servoom_pixel_bean_encode_webp(bean, NULL, &len) == SERVOOM_ERR_ARG, "encode NULL out");
+    if (!servoom_has_webp_encoder()) {
+        CHECK(servoom_pixel_bean_encode_webp(bean, &data, &len) == SERVOOM_ERR_UNSUPPORTED && data == NULL,
+              "encoder compiled out: encode -> UNSUPPORTED");
+        CHECK(servoom_pixel_bean_write_webp(bean, "__never_written__.webp") == SERVOOM_ERR_UNSUPPORTED,
+              "encoder compiled out: write -> UNSUPPORTED");
+        servoom_pixel_bean_free(bean);
+        return;
+    }
+
+    /* container sanity + exact pixel/timeline round trip */
+    CHECK(servoom_pixel_bean_encode_webp(bean, &data, &len) == SERVOOM_OK && len > 12 &&
+              memcmp(data, "RIFF", 4) == 0 && memcmp(data + 8, "WEBP", 4) == 0,
+          "fmt42 encodes to a RIFF/WEBP container");
+    free(data);
+    CHECK(tl_webp_roundtrip(bean, why, sizeof why), "fmt42 webp round-trip: %s", why);
+
+    /* runs of identical frames: A A B A A A at 100 ms -> libwebp merges them into three
+     * frames ending at 200, 300 and 600 ms; the timeline survives, the frame count does not */
+    size_t fs = servoom_pixel_bean_frame_size(bean);
+    servoom_pixel_bean dup = *bean;
+    dup.total_frames = 6;
+    dup.speed = 100;
+    dup.frames = malloc(6 * fs);
+    static const int pattern[6] = {0, 0, 1, 0, 0, 0};
+    for (int f = 0; f < 6; f++)
+        memcpy(dup.frames + (size_t)f * fs, servoom_pixel_bean_frame(bean, pattern[f]), fs);
+    CHECK(tl_webp_roundtrip(&dup, why, sizeof why), "duplicate-frame webp round-trip: %s", why);
+    if (CHECK(servoom_pixel_bean_encode_webp(&dup, &data, &len) == SERVOOM_OK, "duplicate-frame encode")) {
+        sv_webp_anim anim;
+        if (CHECK(sv_webp_decode_anim(data, len, &anim) == SERVOOM_OK, "duplicate-frame decode")) {
+            CHECK(anim.num_frames == 3, "identical consecutive frames merged: %d webp frames (expected 3)",
+                  anim.num_frames);
+            CHECK(anim.num_frames == 3 && anim.timestamps[0] == 200 && anim.timestamps[1] == 300 &&
+                      anim.timestamps[2] == 600,
+                  "merged frames keep the timeline (200/300/600 ms)");
+            sv_webp_anim_free(&anim);
+        }
+        free(data);
+    }
+    /* every frame identical -> one run -> a plain still (no ANIM chunk), like Pillow */
+    for (int f = 0; f < 6; f++)
+        memcpy(dup.frames + (size_t)f * fs, servoom_pixel_bean_frame(bean, 0), fs);
+    CHECK(tl_webp_roundtrip(&dup, why, sizeof why), "all-identical-frames round-trip: %s", why);
+    if (CHECK(servoom_pixel_bean_encode_webp(&dup, &data, &len) == SERVOOM_OK, "all-identical encode")) {
+        int has_anim = 0;
+        for (size_t i = 12; i + 4 <= len; i++)
+            if (memcmp(data + i, "ANIM", 4) == 0)
+                has_anim = 1;
+        CHECK(!has_anim, "single-run animation is written as a still WebP (no ANIM chunk)");
+        sv_webp_anim anim;
+        if (CHECK(sv_webp_decode_anim(data, len, &anim) == SERVOOM_OK, "still decode")) {
+            CHECK(anim.num_frames == 1 && anim.timestamps[0] == 0, "still: one frame, no timing");
+            sv_webp_anim_free(&anim);
+        }
+        free(data);
+    }
+    for (int f = 0; f < 6; f++)
+        memcpy(dup.frames + (size_t)f * fs, servoom_pixel_bean_frame(bean, pattern[f]), fs);
+    /* speed 0 (Divoom allows it): still a valid file, all frames at t=0 */
+    dup.speed = 0;
+    CHECK(tl_webp_roundtrip(&dup, why, sizeof why), "speed-0 webp round-trip: %s", why);
+    free(dup.frames);
+    servoom_pixel_bean_free(bean);
+
+    /* the fmt43 WebP vector (3 distinct 16x16 frames that came out of a WebP with alpha) */
+    if (CHECK(servoom_decode_memory(FMT43_WEBP_FILE, FMT43_WEBP_FILE_LEN, &bean) == SERVOOM_OK, "fmt43-webp decode"))
+        CHECK(tl_webp_roundtrip(bean, why, sizeof why), "fmt43-webp round-trip: %s", why);
+    servoom_pixel_bean_free(bean);
+
+    /* a layer file's composite, the decode-layer path */
+    servoom_layer_bean *layer = NULL;
+    if (CHECK(servoom_layer_decode_memory(LAYER28_FILE, LAYER28_FILE_LEN, &layer) == SERVOOM_OK, "layer decode")) {
+        bean = NULL;
+        if (CHECK(servoom_layer_to_pixel_bean(layer, 100, &bean) == SERVOOM_OK, "layer composite bean"))
+            CHECK(tl_webp_roundtrip(bean, why, sizeof why), "layer composite round-trip: %s", why);
+        servoom_pixel_bean_free(bean);
+        servoom_layer_bean_free(layer);
+    }
+
+    /* write path: file lands on disk and decodes */
+    if (CHECK(servoom_decode_memory(FMT42_FILE, FMT42_FILE_LEN, &bean) == SERVOOM_OK, "fmt42 decode (write)")) {
+        const char *path = "test_units_fmt42.webp";
+        if (CHECK(servoom_pixel_bean_write_webp(bean, path) == SERVOOM_OK, "write_webp")) {
+            FILE *fp = fopen(path, "rb");
+            uint8_t head[12] = {0};
+            size_t got = fp ? fread(head, 1, 12, fp) : 0;
+            if (fp)
+                fclose(fp);
+            CHECK(got == 12 && memcmp(head, "RIFF", 4) == 0, "written file is a RIFF container");
+            remove(path);
+        }
+        servoom_pixel_bean_free(bean);
+    }
+}
+
 int main(void)
 {
     test_digests();
@@ -230,5 +337,6 @@ int main(void)
     test_resize();
     test_synthetic_formats();
     test_layers();
+    test_webp_output();
     return tl_finish("test_units");
 }

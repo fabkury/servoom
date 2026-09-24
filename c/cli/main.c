@@ -2,8 +2,9 @@
  *
  *   servoom info FILE...                 print a JSON summary of each .dat (format, frames,
  *                                        canvas, speed, SHA-256 of the decoded RGB frames)
- *   servoom decode FILE [-o DIR]         write every frame as frame_NNN.ppm (+ .rgb)
- *   servoom decode-layer FILE [-o DIR]   composite frames + each raw layer bitmap
+ *   servoom decode FILE [-o DIR]         write every frame as frame_NNN.ppm (+ .rgb) and the
+ *                                        animation as NAME.webp (lossless; --no-webp skips it)
+ *   servoom decode-layer FILE [-o DIR]   composite frames (+ NAME.webp) + each raw layer bitmap
  *   servoom md5 TEXT                     MD5 hex of TEXT (for SERVOOM_MD5_PASSWORD)
  *   servoom gallery-info GALLERY_ID      print the GalleryInfo record        (needs creds)
  *   servoom download GALLERY_ID [-o DIR] download an artwork (+ layer file)  (needs creds)
@@ -23,8 +24,8 @@ static void usage(void)
 {
     fputs("usage: servoom <command> [args]\n"
           "  info FILE...\n"
-          "  decode FILE [-o DIR]\n"
-          "  decode-layer FILE [-o DIR]\n"
+          "  decode FILE [-o DIR] [--no-webp]\n"
+          "  decode-layer FILE [-o DIR] [--no-webp]\n"
           "  md5 TEXT\n"
           "  gallery-info GALLERY_ID\n"
           "  download GALLERY_ID [-o DIR] [--no-layer]\n"
@@ -145,6 +146,34 @@ static int write_frames(const servoom_pixel_bean *bean, const char *dir)
     return 0;
 }
 
+/* Write the animation as DIR/NAME.webp (NAME = the input's basename without extension)
+ * unless --no-webp was given. A library built without the encoder only warns. */
+static int write_webp(const servoom_pixel_bean *bean, const char *dir, const char *src, int argc, char **argv)
+{
+    if (has_flag(argc, argv, "--no-webp"))
+        return 0;
+    if (!servoom_has_webp_encoder()) {
+        fputs("note: built without the WebP encoder (SERVOOM_WITH_WEBP_ENCODER=OFF); no .webp written\n",
+              stderr);
+        return 0;
+    }
+    const char *base = src;
+    for (const char *p = src; *p; p++)
+        if (*p == '/' || *p == '\\')
+            base = p + 1;
+    const char *dot = strrchr(base, '.');
+    int stem_len = dot && dot != base ? (int)(dot - base) : (int)strlen(base);
+    char path[4096];
+    snprintf(path, sizeof path, "%s/%.*s.webp", dir, stem_len, base);
+    servoom_status st = servoom_pixel_bean_write_webp(bean, path);
+    if (st != SERVOOM_OK) {
+        fprintf(stderr, "cannot write %s: %s\n", path, servoom_status_str(st));
+        return 1;
+    }
+    printf("[OK] %s\n", path);
+    return 0;
+}
+
 static int cmd_decode(int argc, char **argv)
 {
     if (argc < 3) {
@@ -160,6 +189,8 @@ static int cmd_decode(int argc, char **argv)
         return 1;
     }
     int rc = write_frames(bean, dir);
+    if (!rc)
+        rc = write_webp(bean, dir, path, argc, argv);
     if (!rc)
         printf("[OK] %s -> %s (%d frames, %dx%d, %d ms)\n", path, dir, bean->total_frames, bean->width,
                bean->height, bean->speed);
@@ -189,6 +220,8 @@ static int cmd_decode_layer(int argc, char **argv)
         return 1;
     }
     int rc = write_frames(bean, dir);
+    if (!rc)
+        rc = write_webp(bean, dir, path, argc, argv);
     char p[4096];
     size_t fs = (size_t)layer->width * layer->height * 3;
     for (int f = 0; !rc && f < layer->num_frames; f++)

@@ -24,6 +24,15 @@ void tl_bean_hash(const servoom_pixel_bean *bean, char hex[65]);
 void tl_layer_hashes(const servoom_layer_bean *bean, char composite[65], char layers[65],
                      char table[65]);
 
+/* Encode `bean` as an animated lossless WebP, decode it again and check pixels and timeline:
+ * the WebP must hold exactly one frame per run of identical consecutive bean frames (libwebp
+ * merges those), each ending at the run's cumulative speed*frames ms and carrying the run's
+ * exact RGB (alpha 255). A bean that collapses to one run yields a still image with no
+ * timing (as with Pillow); that is accepted. Returns 1 on success; otherwise writes the
+ * reason into `why`.
+ * Requires the encoder to be compiled in. */
+int tl_webp_roundtrip(const servoom_pixel_bean *bean, char *why, size_t why_len);
+
 /* Read a whole text file (malloc'd, NUL-terminated) or NULL. */
 char *tl_read_text(const char *path);
 

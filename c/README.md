@@ -16,7 +16,8 @@ c/
 ├── src/
 │   ├── util/            byte buffers, file I/O, SHA-256, MD5
 │   ├── codec/           LZO1X (in-house), AES-CBC, zstd, JPEG, WebP, GIF (in-house,
-│   │                    Pillow-exact), Pillow-style compositing/resizing
+│   │                    Pillow-exact), Pillow-style compositing/resizing, WebP writer
+│   ├── encode/          public WebP output API (stub when the writer is compiled out)
 │   ├── decoders/        one file per artwork container format + shared helpers
 │   ├── layer/           layer-file decoder (0x27 / 0x28)
 │   └── client/          libcurl transport + API client
@@ -46,6 +47,7 @@ Options:
 | `SERVOOM_WITH_CLIENT`   | ON      | build the cloud client (fetches and builds libcurl)       |
 | `SERVOOM_BUILD_CLI`     | ON      | build `servoom` (`servoom.exe`)                           |
 | `SERVOOM_BUILD_TESTS`   | ON      | build the test programs                                   |
+| `SERVOOM_WITH_WEBP_ENCODER` | ON  | build the lossless WebP writer (see [WebP output](#webp-output)) |
 
 On Windows the client uses Schannel (no OpenSSL needed); on macOS Secure Transport; on
 Linux OpenSSL (`libssl-dev`). If CMake's downloader cannot verify TLS certificates (seen
@@ -70,6 +72,7 @@ if (servoom_decode_file("1234567.dat", &bean) == SERVOOM_OK) {
            bean->total_frames, bean->width, bean->height, bean->speed);
     const uint8_t *rgb = servoom_pixel_bean_frame(bean, 0); /* width*height*3 */
     servoom_pixel_bean_write_ppm(bean, 0, "frame0.ppm");
+    servoom_pixel_bean_write_webp(bean, "1234567.webp");   /* animated lossless WebP */
     servoom_pixel_bean_free(bean);
 }
 
@@ -95,8 +98,35 @@ servoom_client_free(c);
 ```
 
 Decoded frames are row-major 24-bit RGB, frame-major, exactly what the Python
-`PixelBean.frames_data` holds. The library only decodes; it writes no WebP/GIF/PSD files
-(the Python library and the web app do that).
+`PixelBean.frames_data` holds. Besides decoding, the library can write an animation as an
+animated lossless WebP (below); GIF and PSD output stay with the Python library and the
+web app.
+
+### WebP output
+
+`servoom_pixel_bean_write_webp()` / `servoom_pixel_bean_encode_webp()` produce what the
+Python `PixelBean.save_to_webp()` produces: an animated lossless WebP, every frame lasting
+`speed` ms, looping forever, made with the same libwebp `WebPAnimEncoder` and the same
+settings Pillow uses (quality 80, method 0, kmin 9, kmax 17). The CLI's `decode` and
+`decode-layer` write it as `DIR/NAME.webp` next to the frames unless `--no-webp` is given.
+
+What "lossless" does and does not mean here:
+
+* **Pixels round-trip exactly.** Decoding the WebP gives back every RGB byte.
+* **The frame count may not.** libwebp merges runs of identical consecutive frames into a
+  single longer frame (Pillow's output has the same property). The *timeline* is preserved:
+  a run of *n* identical frames becomes one frame of *n × speed* ms. An artwork with a single
+  frame (or all frames identical) becomes a plain still WebP with no timing at all, again as
+  with Pillow. Tests therefore compare the decoded WebP against the original frames run by
+  run, never by frame count.
+* **Bytes are not a contract.** The file is byte-identical to Pillow's only while both link
+  the same libwebp version (1.6.0 on both sides at the time of writing, and the output *is*
+  byte-identical on every corpus sample tried). The tests deliberately do not assert this.
+
+`-DSERVOOM_WITH_WEBP_ENCODER=OFF` leaves the writer out; the functions then return
+`SERVOOM_ERR_UNSUPPORTED` (`servoom_has_webp_encoder()` tells in advance) and the CLI prints
+a note instead of a `.webp`. The encoder adds no dependency: libwebp is fetched for decoding
+anyway, only `libwebpmux` gets linked in addition.
 
 Supported artwork formats: 9, 17, 18, 26 (0x0C and hierarchical 0x11/0x13/0x15 frames),
 31, 41, 42, 43 (embedded GIF or WebP). Layer files: 0x27 (raw RGB) and 0x28 (WebP layers).
@@ -138,8 +168,9 @@ test demands identical bytes. Some are worth knowing:
 
 ```
 servoom info FILE...                       JSON summary + SHA-256 of the decoded frames
-servoom decode FILE [-o DIR]               frames as frame_NNN.ppm / .rgb
-servoom decode-layer FILE [-o DIR]         composite frames + raw layer bitmaps (.rgb)
+servoom decode FILE [-o DIR] [--no-webp]   frames as frame_NNN.ppm / .rgb + NAME.webp
+servoom decode-layer FILE [-o DIR] [--no-webp]
+                                           composite frames + NAME.webp + raw layer bitmaps (.rgb)
 servoom md5 TEXT                           MD5 hex (to produce SERVOOM_MD5_PASSWORD)
 servoom gallery-info GALLERY_ID            GalleryInfo JSON                  (credentials)
 servoom download GALLERY_ID [-o DIR]       artwork + its layer file          (credentials)
@@ -156,12 +187,16 @@ Python CLI. Never commit them.
 
 * **test_units** — digests, the LZO1X and AES codecs, tile placement, resizing, and
   synthetic container files for every format whose expected output was produced by the
-  Python decoders (`tests/vectors.h`, regenerated with `python tests/gen_vectors.py`).
+  Python decoders (`tests/vectors.h`, regenerated with `python tests/gen_vectors.py`);
+  plus the WebP writer (encode → decode round trip, duplicate-frame merging, speed 0, the
+  compiled-out stub).
 * **test_corpus** — decodes every file in the local reference corpus (`../corpus/`) and
   compares frame count, canvas, speed and the SHA-256 of all decoded RGB bytes with
   `corpus/baseline.json`, the Python decoders' output. Layer files additionally compare the
-  parsed layer table and the raw layer bitmaps. It also decodes truncated and bit-flipped
-  copies of every file, which must never crash. Skipped (exit 77) when no corpus is present;
+  parsed layer table and the raw layer bitmaps. Every file that decodes is also written as
+  WebP, decoded again and compared pixel by pixel and along the timeline (layer files via
+  their composite). It also decodes truncated and bit-flipped copies of every file, which
+  must never crash. `SERVOOM_NO_MUTATE=1` skips that (slow) pass. Skipped (exit 77) when no corpus is present;
   the corpus is not published (see `../corpus/README.md`).
 * **test_live** — logs in to the Divoom cloud, lists the account's own uploads and a public
   category feed, then downloads and decodes the first artwork of that feed. Skipped unless

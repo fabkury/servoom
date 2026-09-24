@@ -1,5 +1,7 @@
 #include "testlib.h"
 
+#include "codec/webp_anim.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -104,4 +106,67 @@ const char *tl_corpus_dir(void)
         snprintf(dir, sizeof dir, "%s/corpus", SERVOOM_REPO_ROOT);
     }
     return dir;
+}
+
+int tl_webp_roundtrip(const servoom_pixel_bean *bean, char *why, size_t why_len)
+{
+    uint8_t *data = NULL;
+    size_t len = 0;
+    servoom_status st = servoom_pixel_bean_encode_webp(bean, &data, &len);
+    if (st != SERVOOM_OK) {
+        snprintf(why, why_len, "encode: %s", servoom_status_str(st));
+        return 0;
+    }
+    sv_webp_anim anim;
+    st = sv_webp_decode_anim(data, len, &anim);
+    free(data);
+    if (st != SERVOOM_OK) {
+        snprintf(why, why_len, "decoding our own webp: %s", servoom_status_str(st));
+        return 0;
+    }
+    int ok = 0;
+    size_t fs = servoom_pixel_bean_frame_size(bean);
+    size_t px = (size_t)bean->width * bean->height;
+    if (anim.width != bean->width || anim.height != bean->height) {
+        snprintf(why, why_len, "canvas %dx%d != %dx%d", anim.width, anim.height, bean->width, bean->height);
+        goto done;
+    }
+    int wf = 0, t = 0;
+    for (int f = 0; f < bean->total_frames;) {
+        const uint8_t *frame = servoom_pixel_bean_frame(bean, f);
+        int run = 1;
+        while (f + run < bean->total_frames && memcmp(frame, servoom_pixel_bean_frame(bean, f + run), fs) == 0)
+            run++;
+        if (wf >= anim.num_frames) {
+            snprintf(why, why_len, "webp has only %d frame(s); bean frame %d (run of %d) is missing",
+                     anim.num_frames, f, run);
+            goto done;
+        }
+        const uint8_t *rgba = anim.rgba + (size_t)wf * px * 4;
+        for (size_t i = 0; i < px; i++)
+            if (rgba[4 * i] != frame[3 * i] || rgba[4 * i + 1] != frame[3 * i + 1] ||
+                rgba[4 * i + 2] != frame[3 * i + 2] || rgba[4 * i + 3] != 255) {
+                snprintf(why, why_len, "pixel %zu of webp frame %d (bean frame %d) differs", i, wf, f);
+                goto done;
+            }
+        t += run * bean->speed;
+        /* One run in total: libwebp writes a plain still (no ANIM chunk, no timing), as
+         * Pillow does for a single frame; the decoder then reports timestamp 0. */
+        int still = (wf == 0 && f + run == bean->total_frames && anim.timestamps[wf] == 0);
+        if (anim.timestamps[wf] != t && !still) {
+            snprintf(why, why_len, "webp frame %d ends at %d ms, expected %d (bean frame %d, run of %d)",
+                     wf, anim.timestamps[wf], t, f, run);
+            goto done;
+        }
+        wf++;
+        f += run;
+    }
+    if (wf != anim.num_frames) {
+        snprintf(why, why_len, "webp has %d frames, bean has %d runs", anim.num_frames, wf);
+        goto done;
+    }
+    ok = 1;
+done:
+    sv_webp_anim_free(&anim);
+    return ok;
 }
