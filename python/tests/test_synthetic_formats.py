@@ -98,3 +98,24 @@ def test_format_18_non_square_strip_places_tiles_row_major():
     for t in range(4):
         assert np.array_equal(bean.frames_data[0][:, t * 16:(t + 1) * 16],
                               np.full((16, 16, 3), (t, 0, 0), np.uint8))
+
+
+def test_format_12_banner_scrolls_the_strip_right_to_left():
+    # [0x0C][mode][speed BE16] + AES(four raw 16x16 tiles) -> 64-frame marquee.
+    tiles = b"".join(bytes([t * 50, 0, 0]) * 256 for t in range(4))
+    raw = bytes([12, 1]) + struct.pack(">H", 25) + _aes(tiles)
+    assert len(raw) == 3076  # what every live sample measures
+
+    bean = _decode(raw)
+    assert bean.total_frames == 64 and bean.speed == 25
+    assert (bean.width, bean.height) == (16, 16)
+    assert bean.metadata["banner_mode"] == 1
+    strip = bean.metadata["banner_strip"]
+    assert strip.shape == (16, 64, 3)
+    for t in range(4):
+        assert np.array_equal(strip[:, t * 16:(t + 1) * 16], np.full((16, 16, 3), (t * 50, 0, 0), np.uint8))
+    # frame k shows strip columns k..k+15 (mod 64): content moves left, wraps around
+    assert np.array_equal(bean.frames_data[0], strip[:, 0:16])
+    assert np.array_equal(bean.frames_data[8][:, :8], strip[:, 8:16])
+    assert np.array_equal(bean.frames_data[8][:, 8:], strip[:, 16:24])
+    assert np.array_equal(bean.frames_data[60][:, 4:], strip[:, 0:12])

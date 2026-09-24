@@ -56,12 +56,12 @@ BASELINE = HERE / "baseline.json"
 FILES = HERE / "files"
 
 LAYER_FORMATS = (0x27, 0x28)
-ARTWORK_FORMATS = (8, 9, 17, 18, 26, 31, 41, 42, 43)
+ARTWORK_FORMATS = (8, 9, 12, 17, 18, 26, 31, 41, 42, 43)
 
 # Gallery filters (see python/servoom/gallery_reference.py): FileSize is a bitmask of canvas
 # sizes, FileType a GalleryType, Classify a category.
 FILE_SIZES = {"16": 1, "32": 2, "64": 4, "128": 16, "256": 32}
-FILE_TYPES = {"pic": 0, "anim": 1, "multi_pic": 2, "multi_anim": 3, "all": 5}
+FILE_TYPES = {"pic": 0, "anim": 1, "multi_pic": 2, "multi_anim": 3, "all": 5, "banner": 8}
 CATEGORIES = {"new": 0, "recommend": 18, "top": 14, "character": 3, "nature": 6,
               "creative": 9, "photo": 12, "animal": 32, "person": 33, "food": 35}
 

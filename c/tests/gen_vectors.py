@@ -195,6 +195,16 @@ assert bean.total_frames == 1 and bean.width == 16 and bean.frames_data[0].tobyt
 emit_bytes("FMT08_FILE", raw8)
 out.append(f'#define FMT08_HASH "{h}"')
 
+# format 12: scrolling banner, [0x0C][mode][speed BE16] + AES over four raw 16x16 tiles
+tiles12 = b"".join(bytes([t * 60, (i * 3) & 0xFF, (i * 5) & 0xFF]) for t in range(4) for i in range(256))
+enc = AES.new(b"78hrey23y28ogs89", AES.MODE_CBC, b"1234567890123456").encrypt(tiles12)
+raw12 = bytes([12, 1]) + struct.pack(">H", 25) + enc
+h, bean = pixel_hash(raw12)
+assert bean.total_frames == 64 and bean.speed == 25 and (bean.width, bean.height) == (16, 16)
+emit_bytes("FMT12_FILE", raw12)
+out.append(f'#define FMT12_HASH "{h}"')
+out.append(f'#define FMT12_STRIP_HASH "{hashlib.sha256(bean.metadata["banner_strip"].tobytes()).hexdigest()}"')
+
 
 # --- layer files -----------------------------------------------------------------
 def _layer_table(frames) -> bytes:

@@ -38,7 +38,7 @@ on `npm run dev`/`npm run build`, and CI fails if the committed copies drift.
 ## Features
 - Authenticate against the Divoom cloud API.
 - Fetch uploads, likes, tag metadata, and feeds via `DivoomClient`.
-- Download animation binaries and convert them to WebP/GIF or PIL images through `PixelBeanDecoder`, covering Divoom formats 8, 9, 17, 18, 26, 31, 41, 42, and 43 (see [`FILE_FORMATS.md`](FILE_FORMATS.md) for which containers hold stills, animations, or both, with the evidence).
+- Download animation binaries and convert them to WebP/GIF or PIL images through `PixelBeanDecoder`, covering Divoom formats 8, 9, 12, 17, 18, 26, 31, 41, 42, and 43 (see [`FILE_FORMATS.md`](FILE_FORMATS.md) for which containers hold stills, animations, or both, with the evidence).
 - Decode Divoom **layer files** (format 0x27) into their component layers via `LayerFileDecoder`, and export them to an animated WebP or a **layered PSD** (openable in GIMP/Photoshop with per-layer opacity, visibility and per-frame groups).
 - A small CLI (`python -m servoom`) for decoding and downloading, and a `pytest` suite that regression-tests the decoders (synthetic files, plus a local reference corpus when present).
 

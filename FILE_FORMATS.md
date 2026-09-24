@@ -20,7 +20,7 @@ wrong.
 | 41 (0x29) | **both**; mostly stills | 256x256; 14 samples from a single uploader, 10 of them 1-frame. |
 | 42 (0x2A) | **both**, in roughly equal numbers | 256x256; every still at this size is a 1-frame format-42 file. |
 | 43 (0x2B) | **animation only** (in the wild) | 256x256, never fewer than 20 frames in 98 samples, only ever listed as an animation. |
-| 12 (0x0C) | not an artwork: scrolling banner | 16x16 x 4 panels, always exactly 4 tiles; see below. Not decoded by servoom. |
+| 12 (0x0C) | scrolling banner (neither) | 16x16 device content: four 16x16 tiles forming a 64x16 strip the device scrolls; decoded as a 64-frame marquee. |
 
 "Still" here means the decoded container holds exactly one frame. Only two multi-frame
 files in the survey had all their frames identical (one format 9, one format 42), so the
@@ -43,7 +43,7 @@ field. The values that exist in the feeds depend on the canvas size:
 | 1 | animation | 16x16 only | 9 |
 | 2 | multi-picture | 32, 64, 128, 256 | 17 (32/64px), 26 (64/128px), 42 (256px) |
 | 3 | multi-animation | 16 (rare), 32, 64, 128, 256 | 18 (16/32px), 26 (64/128px), 31 (128px), 41 (256px), 42 (256px), 43 (256px) |
-| 8 | (unnamed) | 16x16 | 12 |
+| 8 | banner (not exposed by the gallery filters) | 16x16 | 12 |
 
 "Multi" is Divoom's word for the tiled canvases larger than a single 16x16 panel, not for
 multiple frames. The 16x16 `FileType=3` files are format 18 strips of several 16x16
@@ -136,14 +136,23 @@ all 256x256, all listed as multi-animation, 10 of them single frames (`speed` 10
 4 real animations (26 to 90 frames). The existing decoder handles all 14 (verified
 visually); they are now in the reference corpus.
 
-### Format 12: a scrolling banner, not an artwork
+### Format 12: a scrolling banner
 
-Six 16x16 files under `FileType=8` (a value the gallery filters do not expose) are
-format 12 (0x0C): `[0x0C][mode 1|2][speed BE16]` + AES-CBC of exactly four 16x16 RGB
-tiles (3076 bytes every time). Decrypted with format 9's layout and laid side by side the
-four tiles form a 64x16 picture (text, a plane over clouds, a stock chart) that the device
-scrolls across its 16x16 panel. It is neither a still nor a frame animation and servoom
-does not decode it.
+16x16 files under `FileType=8` (a value the gallery filters do not expose, but which
+user upload lists return alongside everything else) are format 12 (0x0C):
+`[0x0C][mode][speed BE16]` + AES-CBC of exactly four 16x16 RGB tiles (3076 bytes every
+time, 46 samples). Decrypted with format 9's layout and laid side by side the four tiles
+form a 64x16 picture (text, a plane over clouds, a stock chart) that the device scrolls
+across its 16x16 panel. The `mode` byte takes the values 1, 2 and 3 in the samples; its
+meaning is unknown and the decoders ignore it (Python keeps it as
+`metadata['banner_mode']`). `speed` ranges from 25 to 800 ms.
+
+It is neither a still nor a stored frame animation. servoom decodes it as the marquee a
+16x16 device would show: 64 frames of a 16x16 window sliding right-to-left over the strip
+one pixel per frame, wrapping around, each frame lasting `speed` ms. The flat strip stays
+reachable (`metadata['banner_strip']` in Python, `servoom_pixel_bean_banner_strip()` in
+C, shown under the preview in the web tool). The scroll direction, step and wrap-around
+are an interpretation of the content, not verified on a device.
 
 ## Reproducing
 

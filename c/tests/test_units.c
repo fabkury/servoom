@@ -148,6 +148,24 @@ static void test_synthetic_formats(void)
 {
     synthetic("fmt08", FMT08_FILE, FMT08_FILE_LEN, FMT08_HASH);
     synthetic("fmt09", FMT09_FILE, FMT09_FILE_LEN, FMT09_HASH);
+    synthetic("fmt12", FMT12_FILE, FMT12_FILE_LEN, FMT12_HASH);
+    {   /* the banner strip helper reproduces Python's metadata['banner_strip'] */
+        servoom_pixel_bean *bean = NULL;
+        CHECK(servoom_decode_memory(FMT12_FILE, FMT12_FILE_LEN, &bean) == SERVOOM_OK && bean, "fmt12 decode");
+        if (bean) {
+            uint8_t strip[16 * 64 * 3];
+            char hex[65];
+            CHECK(servoom_pixel_bean_banner_strip(bean, strip) == SERVOOM_OK, "banner strip ok");
+            servoom_sha256 ctx;
+            uint8_t digest[32];
+            servoom_sha256_init(&ctx);
+            servoom_sha256_update(&ctx, strip, sizeof strip);
+            servoom_sha256_final(&ctx, digest);
+            servoom_digest_to_hex(digest, 32, hex);
+            CHECK(strcmp(hex, FMT12_STRIP_HASH) == 0, "banner strip hash");
+            servoom_pixel_bean_free(bean);
+        }
+    }
     synthetic("fmt17", FMT17_FILE, FMT17_FILE_LEN, FMT17_HASH);
     synthetic("fmt18", FMT18_FILE, FMT18_FILE_LEN, FMT18_HASH);
     synthetic("fmt26-solid", FMT26_SOLID_FILE, FMT26_SOLID_FILE_LEN, FMT26_SOLID_HASH);

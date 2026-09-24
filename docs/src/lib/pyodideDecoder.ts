@@ -16,6 +16,10 @@ export interface DecodedBean {
   frames: Uint8Array[];
   webp: Uint8Array;
   gif: Uint8Array;
+  /** Container format byte (8, 9, 12, ...). */
+  format: number;
+  /** Format 12 only: the flat 64x16 RGB strip the scrolled frames were made from. */
+  bannerStrip?: Uint8Array;
 }
 
 const STUB_MODULES = `
@@ -78,7 +82,9 @@ from io import BytesIO
 from pixel_bean_decoder import PixelBeanDecoder
 
 def decode_pixel_bean(raw_bytes: bytes):
+    fmt = raw_bytes[0] if raw_bytes else 0
     bean = PixelBeanDecoder.decode_stream(BytesIO(raw_bytes))
+    strip = bean.metadata.get("banner_strip")
     frames = [frame.tobytes() for frame in bean.frames_data]
     webp_buffer = BytesIO()
     bean.save_to_webp(webp_buffer)
@@ -94,6 +100,8 @@ def decode_pixel_bean(raw_bytes: bytes):
         "frames": frames,
         "webp": webp_bytes,
         "gif": gif_bytes,
+        "format": fmt,
+        "banner_strip": strip.tobytes() if strip is not None else None,
     }
 `;
 
@@ -183,6 +191,8 @@ sys.path.append('/servoom')
         frames: Uint8Array<ArrayBufferLike>[];
         webp: Uint8Array<ArrayBufferLike>;
         gif: Uint8Array<ArrayBufferLike>;
+        format: number;
+        banner_strip: Uint8Array<ArrayBufferLike> | null;
       };
       result.destroy();
       const frames = jsResult.frames.map((frame) => toPlainUint8Array(frame));
@@ -201,6 +211,8 @@ sys.path.append('/servoom')
         frames,
         webp,
         gif,
+        format: jsResult.format,
+        bannerStrip: jsResult.banner_strip ? toPlainUint8Array(jsResult.banner_strip) : undefined,
       };
     } finally {
       pyBytes.destroy();

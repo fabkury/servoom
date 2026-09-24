@@ -80,8 +80,11 @@ interface Translation {
       views: string;
       uploaded: string;
       size: string;
+      type: string;
       actions: string;
     };
+    fileTypes: Record<number, string>;
+    bannerStrip: string;
     summary: (page: number, totalPages: number, totalItems: number, selected: number) => string;
   };
   zip: {
@@ -188,8 +191,11 @@ const translations: Record<Locale, Translation> = {
         views: 'Views',
         uploaded: 'Uploaded',
         size: 'Size',
+        type: 'Type',
         actions: 'Actions',
       },
+      fileTypes: { 0: 'picture', 1: 'animation', 2: 'multi-picture', 3: 'multi-animation', 8: 'banner' },
+      bannerStrip: 'Unrolled banner (64x16, scrolled right-to-left on the device)',
       summary: (page, totalPages, totalItems, selected) =>
         `Page ${page} / ${totalPages} · ${totalItems} items · ${selected} selected`,
     },
@@ -297,8 +303,11 @@ const translations: Record<Locale, Translation> = {
         views: 'Vistas',
         uploaded: 'Subido',
         size: 'Tamaño',
+        type: 'Tipo',
         actions: 'Acciones',
       },
+      fileTypes: { 0: 'imagen', 1: 'animación', 2: 'multi-imagen', 3: 'multi-animación', 8: 'letrero' },
+      bannerStrip: 'Letrero desplegado (64x16, se desplaza de derecha a izquierda en el dispositivo)',
       summary: (page, totalPages, totalItems, selected) =>
         `Página ${page} / ${totalPages} · ${totalItems} elementos · ${selected} seleccionados`,
     },
@@ -405,8 +414,11 @@ const translations: Record<Locale, Translation> = {
         views: '浏览',
         uploaded: '上传时间',
         size: '尺寸',
+        type: '类型',
         actions: '操作',
       },
+      fileTypes: { 0: '图片', 1: '动画', 2: '多屏图片', 3: '多屏动画', 8: '滚动横幅' },
+      bannerStrip: '展开的横幅（64x16，设备上从右向左滚动）',
       summary: (page, totalPages, totalItems, selected) =>
         `第 ${page}/${totalPages} 页 · 共 ${totalItems} 项 · 选中 ${selected} 项`,
     },
@@ -513,8 +525,11 @@ const translations: Record<Locale, Translation> = {
         views: '閲覧',
         uploaded: 'アップロード',
         size: 'サイズ',
+        type: '種類',
         actions: '操作',
       },
+      fileTypes: { 0: '静止画', 1: 'アニメーション', 2: 'マルチ静止画', 3: 'マルチアニメーション', 8: 'スクロールバナー' },
+      bannerStrip: '展開したバナー（64x16、デバイスでは右から左へスクロール）',
       summary: (page, totalPages, totalItems, selected) =>
         `ページ ${page} / ${totalPages} · ${totalItems} 件 · ${selected} 件を選択`,
     },
@@ -621,8 +636,11 @@ const translations: Record<Locale, Translation> = {
         views: 'Просмотры',
         uploaded: 'Загрузка',
         size: 'Размер',
+        type: 'Тип',
         actions: 'Действия',
       },
+      fileTypes: { 0: 'картинка', 1: 'анимация', 2: 'мульти-картинка', 3: 'мульти-анимация', 8: 'бегущая строка' },
+      bannerStrip: 'Развёрнутый баннер (64x16, на устройстве прокручивается справа налево)',
       summary: (page, totalPages, totalItems, selected) =>
         `Стр. ${page}/${totalPages} · ${totalItems} элементов · выбрано ${selected}`,
     },
@@ -892,6 +910,34 @@ function AnimationPreview({ bean, scale }: { bean: DecodedBean; scale: number })
   }, [bean.speed, imageFrames, width, height, scale]);
 
   return <canvas ref={canvasRef} className="preview-canvas" />;
+}
+
+function BannerStripPreview({ strip, scale, label }: { strip: Uint8Array; scale: number; label: string }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const width = 64;
+    const height = 16;
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const offscreen = document.createElement('canvas');
+    offscreen.width = width;
+    offscreen.height = height;
+    const offCtx = offscreen.getContext('2d');
+    if (!offCtx) return;
+    offCtx.putImageData(rgbToRgba(strip, width, height), 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(offscreen, 0, 0, canvas.width, canvas.height);
+  }, [strip, scale]);
+  return (
+    <div className="banner-strip">
+      <div>{label}</div>
+      <canvas ref={canvasRef} className="preview-canvas" />
+    </div>
+  );
 }
 
 function App() {
@@ -1630,6 +1676,7 @@ function App() {
                     <th>{t.table.headers.views}</th>
                     <th>{t.table.headers.uploaded}</th>
                     <th>{t.table.headers.size}</th>
+                    <th>{t.table.headers.type}</th>
                     <th>{t.table.headers.actions}</th>
                   </tr>
                 </thead>
@@ -1649,6 +1696,7 @@ function App() {
                       <td>{formatNumber(item.WatchCnt)}</td>
                       <td>{formatEpoch(item.Date)}</td>
                       <td>{interpretFileSizeFlag(item.FileSize as number)}</td>
+                      <td>{t.table.fileTypes[item.FileType] ?? String(item.FileType ?? '—')}</td>
                       <td className="actions table-actions">
                         <button onClick={() => handleDecode(item)} disabled={decodingLocked}>
                           {decodingItemId === item.GalleryId ? t.buttons.decoding : t.buttons.decode}
@@ -1725,6 +1773,9 @@ function App() {
                 </div>
               </div>
               <AnimationPreview bean={decodeState.bean} scale={scale} />
+              {decodeState.bean.bannerStrip && (
+                <BannerStripPreview strip={decodeState.bean.bannerStrip} scale={scale} label={t.table.bannerStrip} />
+              )}
             </>
           ) : (
             <p>{t.messages.previewPlaceholder}</p>

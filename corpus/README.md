@@ -19,7 +19,7 @@ published; only the tooling is tracked. Everything below is git-ignored except `
 Without a local corpus the C and Python corpus tests are skipped; the synthetic tests
 still cover every format. To build your own corpus, see "Extending the corpus".
 
-Current contents: 1957 files (376 MB) -- 40 x format 8, 322 x 9, 86 x 17, 185 x 18, 587 x 26,
+Current contents: 1997 files (376 MB) -- 40 x format 8, 322 x 9, 40 x 12, 86 x 17, 185 x 18, 587 x 26,
 147 x 31, 14 x 41, 398 x 42, 98 x 43, 40 x layer 0x27, 40 x layer 0x28 (most were added by
 the 2026-09-24 still-vs-animation survey, see `FILE_FORMATS.md`). Baseline: 0 oracle errors.
 

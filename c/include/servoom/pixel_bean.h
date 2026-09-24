@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 typedef struct servoom_pixel_bean {
-    int format;        /* container format byte (9, 17, 18, 26, 31, 41, 42, 43) */
+    int format;        /* container format byte (8, 9, 12, 17, 18, 26, 31, 41, 42, 43) */
     int total_frames;  /* number of decoded frames (may differ from the header's claim) */
     int speed;         /* frame delay in milliseconds */
     int row_count;     /* canvas height in 16-pixel tiles */
@@ -50,6 +50,11 @@ const uint8_t *servoom_pixel_bean_frame(const servoom_pixel_bean *bean, int inde
 size_t servoom_pixel_bean_frame_size(const servoom_pixel_bean *bean);
 
 void servoom_pixel_bean_free(servoom_pixel_bean *bean);
+
+/* Format 12 (scrolling banner) only: copy the flat 64x16 RGB strip the 64 scrolled
+ * frames were made from into `out` (16 * 64 * 3 bytes). SERVOOM_ERR_UNSUPPORTED for any
+ * other bean. */
+servoom_status servoom_pixel_bean_banner_strip(const servoom_pixel_bean *bean, uint8_t *out);
 
 /* Whether `format_byte` is one of the artwork container formats above. */
 int servoom_format_is_artwork(int format_byte);

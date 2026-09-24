@@ -42,6 +42,7 @@ set(SERVOOM_SOURCES
   src/decoders/common.c
   src/decoders/fmt08_pic_single.c
   src/decoders/fmt09_anim_single.c
+  src/decoders/fmt12_banner.c
   src/decoders/fmt17_pic_multi.c
   src/decoders/fmt18_anim_multi.c
   src/decoders/fmt26_anim_multi64.c

@@ -8,6 +8,8 @@ root for what each container holds in practice: which are still-only, which are
 animation-only and which carry both):
 - ✓ Format 8  (0x08): 16x16 single picture (always exactly one frame)
 - ✓ Format 9  (0x09): 16x16 animation (1..N frames)
+- ✓ Format 12 (0x0C): 16x16 scrolling banner: four 16x16 tiles = a 64x16 strip, decoded as
+                      the 64-frame right-to-left marquee a 16x16 device would show
 - ✓ Format 17 (0x11): multi-tile picture (always exactly one frame; 32x32 observed)
 - ✓ Format 18 (0x12): multi-tile animation (1..N frames; 32x32 and 16x16 1xN/Nx1 strips observed)
 - ✓ Format 26 (0x1A): 64x64 or 128x128 animation (1..N frames; stills are 1-frame files)
@@ -181,6 +183,7 @@ def _composite_image_sequence(im, expected_size) -> List[bytes]:
 
 class FileFormat(Enum):
     PIC_SINGLE = 8  # 16x16, one frame
+    PIC_BANNER = 12  # 16x16 scrolling banner (4 tiles)
     PIC_MULTIPLE = 17
     ANIM_SINGLE = 9  # 16x16
     ANIM_MULTIPLE = 18  # 32x32 or 64x64
@@ -297,6 +300,49 @@ class PicSingleDecoder(BaseDecoder):
             row_count=1,
             column_count=1,
             frames_data=frames_arrays,
+        )
+
+
+class BannerDecoder(BaseDecoder):
+    """Format 12 (0x0C): a 16x16 scrolling banner.
+
+    File = ``[0x0C][mode][speed BE16]`` + AES-CBC ciphertext of exactly four raw 16x16 RGB
+    tiles (3076-byte files); the tiles side by side form one 64x16 strip that the device
+    scrolls across its 16x16 panel (gallery ``FileType`` 8). The decoder returns that
+    marquee: 64 frames of a 16x16 window sliding right-to-left over the strip, one pixel
+    per frame, wrapping around, each lasting ``speed`` ms. The flat strip is kept as
+    ``metadata['banner_strip']`` (a ``(16, 64, 3)`` array) and the header's ``mode`` byte
+    (1 or 2 observed, meaning unknown) as ``metadata['banner_mode']``.
+    """
+
+    TILES = 4
+    TILE_BYTES = 16 * 16 * 3
+
+    def decode(self) -> PixelBean:
+        header = self._fp.read(3)
+        if len(header) < 3:
+            logger.error("Format 12: header too short")
+            return None
+        mode = header[0]
+        speed = unpack('>H', header[1:3])[0]
+        encrypted = self._fp.read()
+        usable = len(encrypted) - (len(encrypted) % 16)
+        if usable < self.TILES * self.TILE_BYTES:
+            logger.error("Format 12: payload too short (%d bytes)", len(encrypted))
+            return None
+        decrypted = self._decrypt_aes(encrypted[:usable])
+        tiles = [decrypted[i * self.TILE_BYTES:(i + 1) * self.TILE_BYTES] for i in range(self.TILES)]
+        strip = np.concatenate(self._compact(tiles, self.TILES), axis=1)  # (16, 64, 3)
+        wrapped = np.concatenate([strip, strip], axis=1)
+        width = strip.shape[1]
+        frames = [wrapped[:, x:x + 16].copy() for x in range(width)]
+        return PixelBean(
+            metadata={'banner_mode': mode, 'banner_strip': strip},
+            total_frames=width,
+            speed=speed,
+            row_count=1,
+            column_count=1,
+            frames_data=frames,
         )
 
 
@@ -1415,6 +1461,7 @@ def _decode_format_26(fp: IOBase) -> PixelBean:
 # Format byte -> callable(fp) -> PixelBean.
 _DECODERS = {
     FileFormat.PIC_SINGLE: lambda fp: PicSingleDecoder(fp).decode(),
+    FileFormat.PIC_BANNER: lambda fp: BannerDecoder(fp).decode(),
     FileFormat.ANIM_SINGLE: lambda fp: AnimSingleDecoder(fp).decode(),
     FileFormat.ANIM_MULTIPLE: lambda fp: AnimMultiDecoder(fp).decode(),
     FileFormat.PIC_MULTIPLE: lambda fp: PicMultiDecoder(fp).decode(),
