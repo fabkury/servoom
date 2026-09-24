@@ -36,6 +36,7 @@ servoom_status sv_decode_0x0c_frame(const uint8_t *data, size_t len, int num_pix
                                     uint8_t *out_rgb);
 
 /* --- per-format decoders ------------------------------------------------- */
+servoom_status sv_decode_fmt08(const uint8_t *data, size_t len, servoom_pixel_bean **out);
 servoom_status sv_decode_fmt09(const uint8_t *data, size_t len, servoom_pixel_bean **out);
 servoom_status sv_decode_fmt17(const uint8_t *data, size_t len, servoom_pixel_bean **out);
 servoom_status sv_decode_fmt18(const uint8_t *data, size_t len, servoom_pixel_bean **out);

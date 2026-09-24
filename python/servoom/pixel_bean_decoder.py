@@ -1,13 +1,16 @@
 """
-Supported File Formats for PixelBeanDecoder:
-- ✓ Format 9 (0x09): 16x16 single animation
-- ✓ Format 17 (0x11): Multiple picture format
-- ✓ Format 18 (0x12): 32x32 or 64x64 animation
-- ✓ Format 26 (0x1A): 64x64 or 128x128 animation
-- ✓ Format 31 (0x1F): 128x128 embedded JPEG animation
-- ✓ Format 41 (0x29): JPEG sequence animations at 256x256
-- ✓ Format 42 (0x2A): 256x256 zstd-compressed raw RGB frames
-- ✓ Format 43 (0x2B): 256x256 embedded GIF/WEBP container
+Supported File Formats for PixelBeanDecoder (see ``FILE_FORMATS.md`` at the repository
+root for what each container holds in practice: which are still-only, which are
+animation-only and which carry both):
+- ✓ Format 8  (0x08): 16x16 single picture (always exactly one frame)
+- ✓ Format 9  (0x09): 16x16 animation (1..N frames)
+- ✓ Format 17 (0x11): multi-tile picture (always exactly one frame; 32x32 observed)
+- ✓ Format 18 (0x12): multi-tile animation (1..N frames; 32x32 and 16x16 1xN/Nx1 strips observed)
+- ✓ Format 26 (0x1A): 64x64 or 128x128 animation (1..N frames; stills are 1-frame files)
+- ✓ Format 31 (0x1F): 128x128 embedded JPEG animation (animation-only in the wild)
+- ✓ Format 41 (0x29): JPEG sequence animations at 256x256 (no live sample known)
+- ✓ Format 42 (0x2A): 256x256 zstd-compressed raw RGB frames (1..N frames)
+- ✓ Format 43 (0x2B): 256x256 embedded GIF/WEBP container (animation-only in the wild)
 
 NOTE: this module is the single source of truth for the browser decoder too. It is copied
 verbatim into ``docs/src/python/`` by ``docs/scripts/sync-python.mjs`` and loaded as a flat
@@ -173,6 +176,7 @@ def _composite_image_sequence(im, expected_size) -> List[bytes]:
 
 
 class FileFormat(Enum):
+    PIC_SINGLE = 8  # 16x16, one frame
     PIC_MULTIPLE = 17
     ANIM_SINGLE = 9  # 16x16
     ANIM_MULTIPLE = 18  # 32x32 or 64x64
@@ -251,13 +255,45 @@ class BaseDecoder(object):
                     y = 0
                     grid_x += 1
 
-                    if grid_x == row_count:
+                    # Tiles are stored row-major: wrap the tile column at column_count.
+                    # (Wrapping at row_count only worked for square canvases; format 18
+                    # also carries 1xN / Nx1 multi-panel strips, e.g. 4 rows x 1 column.)
+                    if grid_x == column_count:
                         grid_x = 0
                         grid_y += 1
             
             frames_arrays.append(frame_array)
 
         return frames_arrays
+
+
+class PicSingleDecoder(BaseDecoder):
+    """Format 8 (0x08): a single 16x16 picture.
+
+    File = ``[0x08]`` + AES-CBC ciphertext of exactly one raw 16x16 RGB frame (768 bytes,
+    i.e. 769-byte files). It is the still-image sibling of format 9, without format 9's
+    speed prefix. Every live sample observed is 769 bytes; anything larger is decoded as
+    the first 768 decrypted bytes (extra data ignored).
+    """
+
+    FRAME_BYTES = 16 * 16 * 3
+
+    def decode(self) -> PixelBean:
+        encrypted = self._fp.read()
+        usable = len(encrypted) - (len(encrypted) % 16)
+        if usable < self.FRAME_BYTES:
+            logger.error("Format 8: payload too short (%d bytes)", len(encrypted))
+            return None
+        decrypted = self._decrypt_aes(encrypted[:usable])
+        frames_arrays = self._compact([decrypted[: self.FRAME_BYTES]], 1)
+        return PixelBean(
+            metadata={},
+            total_frames=1,
+            speed=40,  # like format 17 (PicMultiDecoder): stills carry no timing
+            row_count=1,
+            column_count=1,
+            frames_data=frames_arrays,
+        )
 
 
 class AnimSingleDecoder(BaseDecoder):
@@ -1374,6 +1410,7 @@ def _decode_format_26(fp: IOBase) -> PixelBean:
 
 # Format byte -> callable(fp) -> PixelBean.
 _DECODERS = {
+    FileFormat.PIC_SINGLE: lambda fp: PicSingleDecoder(fp).decode(),
     FileFormat.ANIM_SINGLE: lambda fp: AnimSingleDecoder(fp).decode(),
     FileFormat.ANIM_MULTIPLE: lambda fp: AnimMultiDecoder(fp).decode(),
     FileFormat.PIC_MULTIPLE: lambda fp: PicMultiDecoder(fp).decode(),

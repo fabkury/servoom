@@ -19,9 +19,9 @@ published; only the tooling is tracked. Everything below is git-ignored except `
 Without a local corpus the C and Python corpus tests are skipped; the synthetic tests
 still cover every format. To build your own corpus, see "Extending the corpus".
 
-Current contents: 448 files (105 MB) -- 114 x format 9, 34 x 17, 40 x 18, 60 x 26, 40 x 31,
-40 x 42, 40 x 43, 40 x layer 0x27, 40 x layer 0x28. Format 41 has no known live sample (see
-`c/README.md`). Baseline: 0 oracle errors.
+Current contents: 1957 files (376 MB) -- 40 x format 8, 322 x 9, 86 x 17, 185 x 18, 587 x 26,
+147 x 31, 14 x 41, 398 x 42, 98 x 43, 40 x layer 0x27, 40 x layer 0x28 (most were added by
+the 2026-09-24 still-vs-animation survey, see `FILE_FORMATS.md`). Baseline: 0 oracle errors.
 
 ## Getting the payloads (if you have a manifest)
 
@@ -51,7 +51,10 @@ python corpus/corpus.py baseline
 
 `discover` pages through category feeds (`GetCategoryFileListV2`) across canvas sizes and
 gallery types, downloads each artwork (and its layer file when the record has a
-`LayerFileId`) and keeps it only if its format byte is still under target. `baseline`
+`LayerFileId`) and keeps it only if its format byte is still under target. The server's
+`FileType` classes (`--type pic anim multi_pic multi_anim`) map onto container formats
+as documented in [`FILE_FORMATS.md`](../FILE_FORMATS.md); `pic` only exists at 16px
+(format 8) and `multi_pic` only from 32px up, so a stratified run needs all four. `baseline`
 decodes with `PixelBeanDecoder` / `LayerFileDecoder`; when the Python decoder itself
 fails on a file the baseline records the error so the C decoder is required to fail on it
 too. After changing a Python decoder deliberately, run `baseline --rebuild`.

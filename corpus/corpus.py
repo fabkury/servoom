@@ -56,7 +56,7 @@ BASELINE = HERE / "baseline.json"
 FILES = HERE / "files"
 
 LAYER_FORMATS = (0x27, 0x28)
-ARTWORK_FORMATS = (9, 17, 18, 26, 31, 41, 42, 43)
+ARTWORK_FORMATS = (8, 9, 17, 18, 26, 31, 41, 42, 43)
 
 # Gallery filters (see python/servoom/gallery_reference.py): FileSize is a bitmask of canvas
 # sizes, FileType a GalleryType, Classify a category.

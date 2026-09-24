@@ -186,6 +186,15 @@ assert bean.total_frames == 3 and bean.speed == 80
 emit_bytes("FMT09_FILE", raw9)
 out.append(f'#define FMT09_HASH "{h}"')
 
+# format 8: 16x16 single picture, AES over exactly one raw RGB frame (769-byte file)
+frame8 = b"".join(bytes([(i * 3) & 0xFF, (i * 5) & 0xFF, 200]) for i in range(256))
+enc = AES.new(b"78hrey23y28ogs89", AES.MODE_CBC, b"1234567890123456").encrypt(frame8)
+raw8 = bytes([8]) + enc
+h, bean = pixel_hash(raw8)
+assert bean.total_frames == 1 and bean.width == 16 and bean.frames_data[0].tobytes() == frame8
+emit_bytes("FMT08_FILE", raw8)
+out.append(f'#define FMT08_HASH "{h}"')
+
 
 # --- layer files -----------------------------------------------------------------
 def _layer_table(frames) -> bytes:

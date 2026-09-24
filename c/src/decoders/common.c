@@ -57,7 +57,7 @@ servoom_status sv_compact_frame(const uint8_t *frame_data, size_t len, int row_c
             x = 0;
             y = 0;
             grid_x++;
-            if (grid_x == row_count) { /* sic: the Python code wraps on row_count */
+            if (grid_x == column_count) { /* tiles are row-major */
                 grid_x = 0;
                 grid_y++;
             }

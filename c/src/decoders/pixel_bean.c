@@ -10,7 +10,7 @@
 int servoom_format_is_artwork(int fmt)
 {
     switch (fmt) {
-    case 9: case 17: case 18: case 26: case 31: case 41: case 42: case 43:
+    case 8: case 9: case 17: case 18: case 26: case 31: case 41: case 42: case 43:
         return 1;
     default:
         return 0;
@@ -27,6 +27,7 @@ servoom_status servoom_decode_memory(const uint8_t *data, size_t len, servoom_pi
     const uint8_t *body = data + 1;
     size_t blen = len - 1;
     switch (data[0]) {
+    case 8:  return sv_decode_fmt08(body, blen, out);
     case 9:  return sv_decode_fmt09(body, blen, out);
     case 17: return sv_decode_fmt17(body, blen, out);
     case 18: return sv_decode_fmt18(body, blen, out);

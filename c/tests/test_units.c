@@ -105,11 +105,19 @@ static void test_compact(void)
     p = out + (25 * 32 + 3) * 3; /* tile 2 (gx=0, gy=1), local (3,9) */
     CHECK(p[0] == 2 && p[1] == 9 && p[2] == 3, "compact tile placement 2");
     CHECK(sv_compact_frame(tiles, 100, 2, 2, out) == SERVOOM_ERR_CORRUPT, "compact short input");
-    /* non-square: the Python code raises IndexError -> corrupt */
+    /* non-square (2 rows x 4 columns, as format 18 multi-panel strips): tiles are row-major */
     uint8_t big[16 * 16 * 3 * 8];
-    memset(big, 0, sizeof big);
+    for (int t = 0; t < 8; t++)
+        for (int i = 0; i < 256; i++) {
+            big[(t * 256 + i) * 3] = (uint8_t)t;
+            big[(t * 256 + i) * 3 + 1] = (uint8_t)(i / 16);
+            big[(t * 256 + i) * 3 + 2] = (uint8_t)(i % 16);
+        }
     uint8_t out2[16 * 16 * 3 * 8];
-    CHECK(sv_compact_frame(big, sizeof big, 2, 4, out2) == SERVOOM_ERR_CORRUPT, "compact 2x4 fails like Python");
+    CHECK(sv_compact_frame(big, sizeof big, 2, 4, out2) == SERVOOM_OK, "compact 2x4 ok");
+    /* pixel (x=50, y=20): tile 7 (gx=3, gy=1), local (2,4) on a 64-wide canvas */
+    p = out2 + (20 * 64 + 50) * 3;
+    CHECK(p[0] == 7 && p[1] == 4 && p[2] == 2, "compact 2x4 tile placement (%d,%d,%d)", p[0], p[1], p[2]);
 }
 
 static void test_resize(void)
@@ -138,6 +146,7 @@ static void synthetic(const char *name, const unsigned char *file, size_t len, c
 
 static void test_synthetic_formats(void)
 {
+    synthetic("fmt08", FMT08_FILE, FMT08_FILE_LEN, FMT08_HASH);
     synthetic("fmt09", FMT09_FILE, FMT09_FILE_LEN, FMT09_HASH);
     synthetic("fmt17", FMT17_FILE, FMT17_FILE_LEN, FMT17_HASH);
     synthetic("fmt18", FMT18_FILE, FMT18_FILE_LEN, FMT18_HASH);

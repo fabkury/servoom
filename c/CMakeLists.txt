@@ -40,6 +40,7 @@ set(SERVOOM_SOURCES
   src/codec/image_seq.c
   src/decoders/pixel_bean.c
   src/decoders/common.c
+  src/decoders/fmt08_pic_single.c
   src/decoders/fmt09_anim_single.c
   src/decoders/fmt17_pic_multi.c
   src/decoders/fmt18_anim_multi.c

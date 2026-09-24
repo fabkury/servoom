@@ -64,3 +64,37 @@ def test_format_26_64x64_solid_0x0c_frame():
     assert bean.total_frames == 1
     assert (bean.width, bean.height) == (64, 64)
     assert np.array_equal(bean.frames_data[0], np.full((64, 64, 3), (123, 45, 67), np.uint8))
+
+
+def _aes(plain: bytes) -> bytes:
+    from Crypto.Cipher import AES
+    return AES.new(b"78hrey23y28ogs89", AES.MODE_CBC, b"1234567890123456").encrypt(plain)
+
+
+def test_format_8_single_picture_is_one_raw_aes_frame():
+    # Format 8 = [0x08] + AES-CBC(one raw 16x16 RGB frame): a still, no header at all.
+    frame = b"".join(bytes([i & 0xFF, (i * 3) & 0xFF, 77]) for i in range(256))
+    raw = bytes([8]) + _aes(frame)
+    assert len(raw) == 769  # what every live sample measures
+
+    bean = _decode(raw)
+    assert bean.total_frames == 1
+    assert (bean.width, bean.height) == (16, 16)
+    assert bean.frames_data[0].tobytes() == frame
+    assert _decode(bytes([8]) + _aes(frame)[:-16]) is None  # short payload -> None
+
+
+def test_format_18_non_square_strip_places_tiles_row_major():
+    # 1 row x 4 columns of 16x16 tiles (a 64x16 multi-panel strip), one LZO frame.
+    import lzallright
+    tiles = b"".join(bytes([t, 0, 0]) * 256 for t in range(4))
+    comp = lzallright.LZOCompressor().compress(tiles)
+    body = struct.pack(">I", len(comp)) + comp
+    body += b"\x00" * (-len(body) % 16)
+    raw = bytes([18]) + struct.pack(">BHBB", 1, 100, 1, 4) + _aes(body)
+
+    bean = _decode(raw)
+    assert (bean.width, bean.height) == (64, 16)
+    for t in range(4):
+        assert np.array_equal(bean.frames_data[0][:, t * 16:(t + 1) * 16],
+                              np.full((16, 16, 3), (t, 0, 0), np.uint8))
