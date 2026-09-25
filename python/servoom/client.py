@@ -8,11 +8,11 @@ This class just wires them together with auth.
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from . import csv_export
 from .config import DEFAULT_SETTINGS, Settings
-from .const import ApiEndpoint, Server
+from .const import ApiEndpoint, ForumRegion, Server
 from .credentials import load_credentials
 from .http import DivoomSession, paginate
 from .logging import get_logger
@@ -72,15 +72,21 @@ class DivoomClient:
         return True
 
     def _list(self, endpoint: ApiEndpoint, payload: Dict, *, limit: Optional[int],
-              list_keys=("FileList",)) -> List[Dict]:
-        """Run a paginated listing and return all kept items."""
+              list_keys=("FileList",),
+              keep: Optional[Callable[[Dict], bool]] = None) -> List[Dict]:
+        """Run a paginated listing and return all kept items.
+
+        ``keep`` is an extra predicate applied on top of the HideFlag filter.
+        """
+        extra_keep = keep
+        keep_fn = (lambda item: self._keep(item) and extra_keep(item)) if extra_keep else self._keep
         items = list(paginate(
             self._session.post_json,
             endpoint.value,
             {**self._auth(), **payload},
             batch_size=self._settings.batch_size,
             list_keys=list_keys,
-            keep=self._keep,
+            keep=keep_fn,
             limit=limit,
             on_page=lambda start, total: log.info("  %s: %d collected", endpoint.name, total),
         ))
@@ -207,6 +213,101 @@ class DivoomClient:
         """List users who liked an artwork."""
         return self._list(ApiEndpoint.GET_LIKE_USERS, {"GalleryId": gallery_id},
                           limit=limit, list_keys=("UserList",))
+
+    def fetch_comments_for_art(self, gallery_id: int, limit: Optional[int] = None) -> List[Dict]:
+        """List top-level comments on an artwork; replies nest under ``CommentChildList``."""
+        return self._list(ApiEndpoint.GET_ART_COMMENTS, {"GalleryId": gallery_id},
+                          limit=limit, list_keys=("CommentList",))
+
+    # -- forum: the official article feed (FORUM_API.md) ---------------------
+    def fetch_forum_tags(self, region: int = ForumRegion.INTERNATIONAL) -> List[Dict]:
+        """List forum tags as ``{"TagValue": "2", "TagName": "Contest"}`` records."""
+        resp = self._lookup(ApiEndpoint.FORUM_GET_TAG, {"RegionId": int(region)})
+        return (resp or {}).get("TagList", [])
+
+    def fetch_forum_posts(self, region: int = ForumRegion.INTERNATIONAL,
+                          tag: Optional[int] = None, limit: Optional[int] = None,
+                          dedupe: bool = True) -> List[Dict]:
+        """List forum posts, newest first.
+
+        Page 1 starts with a curated block (pinned + featured posts) that repeats items
+        from the chronological list, so ``dedupe`` drops repeated ``ForumId`` values.
+        ``tag`` (a ``TagValue`` from :meth:`fetch_forum_tags`) filters server-side, but the
+        curated block ignores the filter, so it is also enforced client-side.
+        """
+        payload: Dict = {"RegionId": int(region)}
+        if tag is not None:
+            payload["Tag"] = str(int(tag))
+        seen = set()
+
+        def keep(item: Dict) -> bool:
+            if tag is not None and str(item.get("TagID")) != str(int(tag)):
+                return False
+            if dedupe:
+                fid = item.get("ForumId")
+                if fid in seen:
+                    return False
+                seen.add(fid)
+            return True
+
+        return self._list(ApiEndpoint.FORUM_GET_LIST, payload, limit=limit,
+                          list_keys=("ForumList",), keep=keep)
+
+    def fetch_ambassador_program_post(self) -> Optional[Dict]:
+        """Fetch the fixed "Pixel Art Ambassador Program" post (``/Forum/GetForumUrl``).
+
+        The endpoint ignores every id parameter and always returns forum post 102, so
+        there is no per-id post lookup; use :meth:`fetch_forum_posts` and filter.
+        """
+        return self._lookup(ApiEndpoint.FORUM_GET_AMBASSADOR_POST, {})
+
+    def fetch_forum_comments(self, forum_id: int, limit: Optional[int] = None,
+                             region: int = ForumRegion.INTERNATIONAL) -> List[Dict]:
+        """List top-level comments on a forum post, newest first.
+
+        Replies are nested under each comment's ``CommentChildList``; ``limit`` counts
+        top-level comments only.
+        """
+        return self._list(ApiEndpoint.FORUM_GET_COMMENTS,
+                          {"RegionId": int(region), "ForumId": str(int(forum_id))},
+                          limit=limit, list_keys=("CommentList",))
+
+    # -- notifications and chat-room directory --------------------------------
+    def fetch_unread_counts(self) -> Optional[Dict]:
+        """Unread like/comment/follower notification counters for the current user."""
+        return self._lookup(ApiEndpoint.MESSAGE_GET_UNREAD_CNT, {})
+
+    def fetch_notify_config(self) -> Optional[Dict]:
+        """Notification switches (``LikeConfig``/``CommentConfig``/``FansConfig``)."""
+        return self._lookup(ApiEndpoint.MESSAGE_GET_NOTIFY_CONFIG, {})
+
+    def fetch_like_notifications(self, limit: Optional[int] = None) -> List[Dict]:
+        """Likes received by the current user (the "Message" inbox)."""
+        return self._list(ApiEndpoint.MESSAGE_GET_LIKE_LIST, {}, limit=limit,
+                          list_keys=("LikeList",))
+
+    def fetch_comment_notifications(self, limit: Optional[int] = None) -> List[Dict]:
+        """Comments received by the current user (the "Message" inbox)."""
+        return self._list(ApiEndpoint.MESSAGE_GET_COMMENT_LIST, {}, limit=limit,
+                          list_keys=("LikeList",))
+
+    def fetch_follower_notifications(self, limit: Optional[int] = None) -> List[Dict]:
+        """New followers of the current user (the "Message" inbox)."""
+        return self._list(ApiEndpoint.MESSAGE_GET_FANS_LIST, {}, limit=limit,
+                          list_keys=("LikeList",))
+
+    def fetch_chat_groups(self) -> List[Dict]:
+        """Community chat rooms, flattened; each record carries its ``ClassifyName``.
+
+        Only the directory is served by this API; the messages themselves go through
+        the IM provider the app connects to (see FORUM_API.md).
+        """
+        resp = self._lookup(ApiEndpoint.MESSAGE_GROUP_GET_GROUP_LIST, {})
+        groups: List[Dict] = []
+        for classify in (resp or {}).get("ClassifyList", []):
+            for group in classify.get("GroupList", []):
+                groups.append({**group, "ClassifyName": classify.get("ClassifyName", "")})
+        return groups
 
     # -- single-shot lookups ------------------------------------------------
     def _lookup(self, endpoint: ApiEndpoint, payload: Dict) -> Optional[Dict]:

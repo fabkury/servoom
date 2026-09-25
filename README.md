@@ -38,6 +38,7 @@ on `npm run dev`/`npm run build`, and CI fails if the committed copies drift.
 ## Features
 - Authenticate against the Divoom cloud API.
 - Fetch uploads, likes, tag metadata, and feeds via `DivoomClient`.
+- Read the app's **Forum** (official contest/news/interview posts and their threaded comments), gallery comments and the notification inbox via `DivoomClient`; endpoint map in [`FORUM_API.md`](FORUM_API.md).
 - Download animation binaries and convert them to WebP/GIF or PIL images through `PixelBeanDecoder`, covering Divoom formats 8, 9, 12, 17, 18, 26, 31, 41, 42, and 43 (see [`FILE_FORMATS.md`](FILE_FORMATS.md) for which containers hold stills, animations, or both, with the evidence).
 - Decode Divoom **layer files** (format 0x27) into their component layers via `LayerFileDecoder`, and export them to an animated WebP or a **layered PSD** (openable in GIMP/Photoshop with per-layer opacity, visibility and per-frame groups).
 - A small CLI (`python -m servoom`) for decoding and downloading, and a `pytest` suite that regression-tests the decoders (synthetic files, plus a local reference corpus when present).
@@ -120,6 +121,22 @@ bean = PixelBeanDecoder.decode_file("downloads/1234567_example.dat")
 bean.save_to_webp("out/example.webp")
 ```
 
+### Forum feed (official posts and comments)
+
+The app's Forum tab is an article feed with threaded comments. It comes in two regional
+variants selected per request (see [`FORUM_API.md`](FORUM_API.md)):
+
+```python
+from servoom import DivoomClient
+from servoom.const import ForumRegion
+
+client = DivoomClient(); client.login()
+for post in client.fetch_forum_posts(limit=20):            # international feed, newest first
+    print(post["ForumId"], post["Title"], "comments:", post["CommentCnt"])
+thread = client.fetch_forum_comments(post["ForumId"])       # replies nest in CommentChildList
+chinese = client.fetch_forum_posts(region=ForumRegion.CHINA, tag=2)   # "Contest" tag only
+```
+
 ### Layer files (decode and export to PSD)
 
 Divoom "layer files" (referenced by `LayerFileId` in gallery metadata) are the editable,
@@ -161,6 +178,7 @@ python -m pytest tests
 - `python/servoom/cli.py` – the `python -m servoom` command-line interface.
 - `python/servoom/gallery_reference.py` – preserved reverse-engineering notes (gallery enums,
   record mappers, experimental endpoints); not wired into live code.
+- [`FORUM_API.md`](FORUM_API.md) – request/response map of the forum, comment and notification endpoints.
 - `corpus/` – tooling for the local-only reference corpus shared by the Python and C test suites.
 - `c/` – the C library, CLI and tests (own README).
 
