@@ -65,6 +65,7 @@ interface Translation {
     noDataset: string;
     noItems: string;
     previewPlaceholder: string;
+    seeArtworkBelow: string;
     unknownArtist: string;
     loggedInAs: (email: string) => string;
     loginRequired: string;
@@ -174,6 +175,7 @@ const translations: Record<Locale, Translation> = {
       noDataset: 'No dataset loaded yet.',
       noItems: 'No items loaded yet.',
       previewPlaceholder: 'No artwork decoded yet. Click “Decode” on any row to preview it here.',
+      seeArtworkBelow: 'See artwork below.',
       unknownArtist: 'Unknown artist',
       loggedInAs: (email) => `Logged in as ${email}`,
       loginRequired: 'Please sign in to fetch your artworks.',
@@ -286,6 +288,7 @@ const translations: Record<Locale, Translation> = {
       noItems: 'Aún no hay elementos cargados.',
       previewPlaceholder:
         'Aún no se ha decodificado ninguna obra. Pulsa “Decodificar” en cualquier fila para verla aquí.',
+      seeArtworkBelow: 'Vea la obra más abajo.',
       unknownArtist: 'Artista desconocido',
       loggedInAs: (email) => `Sesión iniciada como ${email}`,
       loginRequired: 'Por favor inicia sesión para obtener tus obras.',
@@ -397,6 +400,7 @@ const translations: Record<Locale, Translation> = {
       noDataset: '尚未加载任何数据。',
       noItems: '尚未加载作品。',
       previewPlaceholder: '尚未解码任何作品。点击任意行的“解码”即可在此预览。',
+      seeArtworkBelow: '请见下方作品。',
       unknownArtist: '未知创作者',
       loggedInAs: (email) => `已登录：${email}`,
       loginRequired: '请先登录以获取你的作品。',
@@ -508,6 +512,7 @@ const translations: Record<Locale, Translation> = {
       noDataset: 'まだデータセットが読み込まれていません。',
       noItems: 'まだ作品が読み込まれていません。',
       previewPlaceholder: 'まだ作品をデコードしていません。「デコード」を押すとここに表示されます。',
+      seeArtworkBelow: '下の作品をご覧ください。',
       unknownArtist: '不明なアーティスト',
       loggedInAs: (email) => `${email} としてサインイン済み`,
       loginRequired: '作品を取得するにはサインインしてください。',
@@ -619,6 +624,7 @@ const translations: Record<Locale, Translation> = {
       noDataset: 'Данные ещё не загружены.',
       noItems: 'Пока нет загруженных работ.',
       previewPlaceholder: 'Работы ещё не декодированы. Нажмите «Декодировать» в таблице, чтобы увидеть их здесь.',
+      seeArtworkBelow: 'Смотрите работу ниже.',
       unknownArtist: 'Неизвестный автор',
       loggedInAs: (email) => `Вы вошли как ${email}`,
       loginRequired: 'Пожалуйста, войдите, чтобы получить ваши работы.',
@@ -1690,33 +1696,40 @@ function App() {
                           onChange={(e) => handleCheckboxChange(item.GalleryId, e.target.checked)}
                         />
                       </td>
-                      <td>{item.FileName}</td>
-                      <td>{item.GalleryId}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => handleDecode(item)}
+                          disabled={decodingLocked}
+                        >
+                          {item.FileName}
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => handleDecode(item)}
+                          disabled={decodingLocked}
+                        >
+                          {item.GalleryId}
+                        </button>
+                      </td>
                       <td>{formatNumber(item.LikeCnt)}</td>
                       <td>{formatNumber(item.WatchCnt)}</td>
                       <td>{formatEpoch(item.Date)}</td>
                       <td>{interpretFileSizeFlag(item.FileSize as number)}</td>
                       <td>{t.table.fileTypes[item.FileType] ?? String(item.FileType ?? '—')}</td>
                       <td className="actions table-actions">
-                        <button onClick={() => handleDecode(item)} disabled={decodingLocked}>
-                          {decodingItemId === item.GalleryId ? t.buttons.decoding : t.buttons.decode}
-                        </button>
-                        <button onClick={() => handleDownloadRaw(item)}>{t.buttons.raw}</button>
-                        {hasLayerFile(item) && (
-                          <>
-                            <button onClick={() => handleDownloadLayerDat(item)}>
-                              {t.buttons.downloadLayerDat}
-                            </button>
-                            <button
-                              onClick={() => handleDownloadLayerPsd(item)}
-                              disabled={layerBusyItemId !== null}
-                            >
-                              {layerBusyItemId === item.GalleryId
-                                ? t.buttons.loading
-                                : t.buttons.downloadLayerPsd}
-                            </button>
-                          </>
+                        {decodeState?.item.GalleryId === item.GalleryId && decodingItemId === null ? (
+                          <span className="decoded-note">{t.messages.seeArtworkBelow}</span>
+                        ) : (
+                          <button onClick={() => handleDecode(item)} disabled={decodingLocked}>
+                            {decodingItemId === item.GalleryId ? t.buttons.decoding : t.buttons.decode}
+                          </button>
                         )}
+                        <button onClick={() => handleDownloadRaw(item)}>{t.buttons.raw}</button>
                       </td>
                     </tr>
                   ))}
