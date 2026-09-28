@@ -1,0 +1,20 @@
+16:11:56 start: 1800s at 1.0s period, alternating ['/Cloud/GetHotTag', '/Cloud/GetHotExpert']
+16:13:36 100 requests, 0 errors, 100s elapsed
+16:15:16 200 requests, 0 errors, 200s elapsed
+16:16:56 300 requests, 0 errors, 300s elapsed
+16:18:36 400 requests, 0 errors, 400s elapsed
+16:20:16 500 requests, 0 errors, 500s elapsed
+16:21:56 600 requests, 0 errors, 600s elapsed
+16:23:36 700 requests, 0 errors, 700s elapsed
+16:25:16 800 requests, 0 errors, 800s elapsed
+16:26:56 900 requests, 0 errors, 900s elapsed
+16:28:36 1000 requests, 0 errors, 1000s elapsed
+16:30:16 1100 requests, 0 errors, 1100s elapsed
+16:31:56 1200 requests, 0 errors, 1200s elapsed
+16:33:36 1300 requests, 0 errors, 1300s elapsed
+16:35:16 1400 requests, 0 errors, 1400s elapsed
+16:36:56 1500 requests, 0 errors, 1500s elapsed
+16:38:36 1600 requests, 0 errors, 1600s elapsed
+16:40:16 1700 requests, 0 errors, 1700s elapsed
+16:41:56 1800 requests, 0 errors, 1800s elapsed
+16:41:56 done: 1801 requests, 0 errors, 1800s
