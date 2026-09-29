@@ -93,7 +93,7 @@ the rows marked *hidden* were found by sweeping 0..40):
 | 1 | Default | 18 | Recommend |
 | 2 | hidden: LED text (`FileType 4`) | 19 | Planet (28-LED lamp artworks, `FileType 9`, `FileSize 8`) |
 | 3 | Character | 20 | Follow (uploads of followed users; needs a token) |
-| 4 | Emoji | 21 | hidden: photo review queue (moderator tab) |
+| 4 | Emoji | 21 | hidden: **held uploads awaiting photo review** (see below) |
 | 5 | Daily | 22 | `ReturnCode 3` |
 | 6 | Nature | 23–28 | hidden: legacy/event buckets (Signboard 2020, Halloween, ...) |
 | 7 | Icon | 29 | Pixel Coloring (fill game) |
@@ -109,6 +109,21 @@ the rows marked *hidden* were found by sweeping 0..40):
 | | | 254 | reported images (moderator) |
 | | | 255 | one placeholder record |
 
+### Category 21: the review queue
+
+`Classify 21` is not a category people upload to. It lists uploads that are **held for
+review**: every record carries `CheckConfirm 1` and `HideFlag 1`, zero likes, comments
+and views, and shows up nowhere else (not in the NEW feed, not in the uploader's public
+profile, not in the Photo category). Observed on 2026-09-29: four 64x64 photo-like
+images, waiting between half an hour and over an hour, unchanged across 50 minutes of
+polling; approved items appear later in `Classify 12` (Photo) with `CheckConfirm 2`, and
+items that stay pending end up hidden under their uploader's profile listing with
+`CheckConfirm 1` weeks later. The listing is silently token-gated: without a token it
+answers `ReturnCode 0` and an empty list; any logged-in account sees it, moderator rights
+are not needed. `DivoomClient` drops `HideFlag 1` records by default, so read it with
+`Settings(respect_hide_flag=False)`. Some `CheckConfirm 1` photos are public
+(`HideFlag 0`, with views); what decides which pending uploads are held is not visible.
+
 ## The artwork record
 
 Every artwork listing (`FileList` items) carries the same record; `Cloud/GalleryInfo`
@@ -123,7 +138,7 @@ returns the same fields for one id. Verified field list:
 | `LikeCnt`, `CommentCnt`, `ShareCnt`, `WatchCnt` | counters |
 | `IsLike`, `IsFollow` | the caller's relation (always 0 anonymously) |
 | `Content`, `FileTagArray`, `AtList` | caption, `#tags`, `@mentions` (`{AtUserId, AtNickName}`) |
-| `PrivateFlag`, `HideFlag`, `IsDel`, `CheckConfirm`, `CopyrightFlag`, `AIFlag` | visibility/moderation flags (`CheckConfirm 2` = approved by a reviewer) |
+| `PrivateFlag`, `HideFlag`, `IsDel`, `CheckConfirm`, `CopyrightFlag`, `AIFlag` | visibility/moderation flags. `CheckConfirm` is the **photo-review** status: `0` on ordinary pixel art (every record of the NEW feed), `1` pending, `2` approved, `3` the other verdict (still listed in the Photo category) |
 | `IsAddNew`, `IsAddRecommend`, `GoodLevel` | curation: promoted to NEW / Recommend |
 | `LayerFileId`, `MusicFileId`, `OriginalGalleryId` | layer-file companion (`FILE_FORMATS.md`), attached music, source of a remix |
 | `FillGameScore`, `FillGameIsFinish` | Pixel Coloring game state |
