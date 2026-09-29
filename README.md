@@ -9,8 +9,8 @@ Read the Divoom cloud and decode its pixel art.
 > the original file, straight from the browser.
 >
 > **[Pixoo64-Advanced-Tools](https://github.com/tidyhf/Pixoo64-Advanced-Tools)** by tidyhf,
-> a separate desktop project for the Pixoo 64: browse the cloud library with its likes and
-> comments, and much more, from a Windows application.
+> a desktop application for the Pixoo 64 built with servoom: browse the cloud library with
+> its likes and comments, and much more, on Windows.
 
 Everything below is for developers.
 
