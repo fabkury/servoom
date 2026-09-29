@@ -228,6 +228,17 @@ of JSON whatever is sent; `User/GetPersonalInfoCnt`, `User/GetBindInfo`,
 
 Albums are curated collections; their comment thread lives on the forum post `ForumId`.
 
+### The two random samplers
+
+Nothing in the API draws artworks at random: 22 guessed paths answer `ReturnCode 10`, and
+every listing (all `FileSort` and `RefreshIndex` values included) returns byte-identical
+lists on repeat. Only `Cloud/GetHotTag` and `Cloud/GetHotExpert` vary between calls, and
+each is a uniform random subset of a small fixed list, returned in the list's own order
+with no memory between calls: 5 of 24 curated tags (stale seasonal content, token
+required) and 10 of 25 curated artists (no token). Measured on 2026-09-28 over 1801
+requests; the study (`requests/01-divoom-random-artwork-endpoint-stats/`, retired) is in
+the git history up to commit `5a4b4e2`.
+
 ## Inbox extras (beyond `FORUM_API.md`)
 
 * `Message/GetConversationList` — private chats of the caller:
