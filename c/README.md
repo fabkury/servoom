@@ -1,37 +1,16 @@
-# servoom in C
+# servoom (C)
 
-A C99 port of the `servoom` Python library: decoders for every Divoom artwork and layer
-file format, plus a Divoom cloud client (login, listings, search, downloads). The Python
-library is the specification; the C decoders are tested to produce **byte-identical**
-output on a corpus of several hundred real artworks (see [Testing](#testing)).
+The `servoom` library and command-line tool in C99: the read-only Divoom cloud client and
+the decoders for every artwork and layer-file container, with output tested
+**byte-for-byte** against the Python library on a corpus of several hundred real artworks.
+The Python library is the specification; this is the port. Part of
+[servoom](../README.md).
 
-```
-c/
-├── include/servoom/     public headers (servoom.h is the umbrella)
-│   ├── pixel_bean.h     decode artworks -> RGB frames
-│   ├── layer_file.h     decode layer files -> layer bitmaps, composite frames
-│   ├── client.h         Divoom cloud client (cJSON responses)
-│   ├── digest.h         SHA-256 / MD5 helpers
-│   └── status.h         status codes
-├── src/
-│   ├── util/            byte buffers, file I/O, SHA-256, MD5
-│   ├── codec/           LZO1X (in-house), AES-CBC, zstd, JPEG, WebP, GIF (in-house,
-│   │                    Pillow-exact), Pillow-style compositing/resizing, WebP writer
-│   ├── encode/          public WebP output API (stub when the writer is compiled out)
-│   ├── decoders/        one file per artwork container format + shared helpers
-│   ├── layer/           layer-file decoder (0x27 / 0x28)
-│   └── client/          libcurl transport + API client
-├── cli/main.c           the `servoom` command-line tool
-├── tests/               unit tests, corpus parity test, live client test
-├── third_party/         vendored single-file libraries (tiny-AES-c, cJSON)
-└── cmake/deps.cmake     fetched dependencies (zstd, libwebp, libjpeg-turbo, curl)
-```
+## Build
 
-## Building
-
-Requirements: CMake ≥ 3.24, Ninja (or any generator), a C99 compiler, and network access
-the first time you configure (the big codecs are downloaded as pinned release tarballs and
-built as static libraries inside `build/`; nothing is installed system-wide).
+CMake 3.24 or newer, Ninja (or any generator), a C99 compiler, and network access on the
+first configure: the codecs are downloaded as pinned release tarballs and built as static
+libraries inside `build/`. Nothing is installed system-wide.
 
 ```powershell
 cd c
@@ -40,216 +19,175 @@ cmake --build build
 ctest --test-dir build
 ```
 
-Options:
+| Option | Default | Effect |
+|--------|---------|--------|
+| `SERVOOM_WITH_CLIENT` | ON | build the cloud client (fetches and builds libcurl) |
+| `SERVOOM_BUILD_CLI` | ON | build the `servoom` executable |
+| `SERVOOM_BUILD_TESTS` | ON | build the test programs |
+| `SERVOOM_WITH_WEBP_ENCODER` | ON | build the lossless WebP writer |
 
-| Option                  | Default | Effect                                                    |
-|-------------------------|---------|-----------------------------------------------------------|
-| `SERVOOM_WITH_CLIENT`   | ON      | build the cloud client (fetches and builds libcurl)       |
-| `SERVOOM_BUILD_CLI`     | ON      | build `servoom` (`servoom.exe`)                           |
-| `SERVOOM_BUILD_TESTS`   | ON      | build the test programs                                   |
-| `SERVOOM_WITH_WEBP_ENCODER` | ON  | build the lossless WebP writer (see [WebP output](#webp-output)) |
+TLS comes from Schannel on Windows, Secure Transport on macOS and OpenSSL (`libssl-dev`) on
+Linux. If CMake's downloader cannot verify certificates (seen with the WinLibs MinGW
+toolchain), point it at a CA bundle:
+`-DCMAKE_TLS_CAINFO="C:/Program Files/Git/mingw64/etc/ssl/certs/ca-bundle.crt"`.
+Tested with GCC 16 (MinGW-w64) on Windows 11; the code has no platform-specific calls
+outside `src/util/fs.c` and `src/client/http.c`.
 
-On Windows the client uses Schannel (no OpenSSL needed); on macOS Secure Transport; on
-Linux OpenSSL (`libssl-dev`). If CMake's downloader cannot verify TLS certificates (seen
-with the WinLibs MinGW toolchain), point it at a CA bundle:
+## Command line
 
-```powershell
-cmake -S . -B build -G Ninja "-DCMAKE_TLS_CAINFO=C:/Program Files/Git/mingw64/etc/ssl/certs/ca-bundle.crt"
+```
+servoom info FILE...                        JSON summary + SHA-256 of the decoded frames
+servoom decode FILE [-o DIR] [--no-webp]    frames as frame_NNN.ppm / .rgb + NAME.webp
+servoom decode-layer FILE [-o DIR] [--no-webp]
+                                            composite frames + NAME.webp + raw layer bitmaps
+servoom md5 TEXT                            MD5 hex, for SERVOOM_MD5_PASSWORD
+
+servoom list-category CATEGORY [--limit N] [--size MASK] [--type T] [--sort 0|1]
+servoom list-user USER_ID [--limit N]
+servoom search QUERY [--limit N]
+servoom list-experts [--limit N]            ranked artists, one JSON record per line
+servoom list-albums [--limit N]
+servoom album-arts ALBUM_ID [--limit N]
+servoom comments GALLERY_ID [--limit N]     threaded comments, one JSON record per line
+servoom forum-posts [--limit N] [--region 1|86] [--tag T]
+servoom user-info USER_ID
+servoom gallery-info GALLERY_ID                                          (credentials)
+servoom download GALLERY_ID [-o DIR] [--no-layer]                        (credentials)
+servoom download-user USER_ID [-o DIR] [--limit N]                       (credentials)
 ```
 
-Tested with GCC 16 (MinGW-w64, WinLibs) on Windows 11. The code is plain C99 with no
-platform-specific calls outside `src/util/fs.c` and `src/client/http.c`, so Linux and
-macOS should build as-is.
+Credentials are `SERVOOM_EMAIL` with `SERVOOM_MD5_PASSWORD` or `SERVOOM_PASSWORD`, as in
+the Python tool; never commit them. Without credentials the cloud commands run
+anonymously, which every listing above allows ([`CLOUD_API.md`](../CLOUD_API.md) says
+which endpoints need a token).
 
-## Library usage
+## Library
+
+`servoom/servoom.h` is the umbrella header. Responses come back as cJSON trees the caller
+frees; decoded frames are row-major 24-bit RGB, frame-major, exactly what the Python
+`PixelBean.frames_data` holds.
 
 ```c
 #include "servoom/servoom.h"
 
 servoom_pixel_bean *bean = NULL;
-if (servoom_decode_file("1234567.dat", &bean) == SERVOOM_OK) {
-    printf("%d frames, %dx%d, %d ms/frame\n",
-           bean->total_frames, bean->width, bean->height, bean->speed);
-    const uint8_t *rgb = servoom_pixel_bean_frame(bean, 0); /* width*height*3 */
-    servoom_pixel_bean_write_ppm(bean, 0, "frame0.ppm");
-    servoom_pixel_bean_write_webp(bean, "1234567.webp");   /* animated lossless WebP */
+if (servoom_decode_file("601799_Blink.dat", &bean) == SERVOOM_OK) {
+    const uint8_t *rgb = servoom_pixel_bean_frame(bean, 0);    /* width*height*3 */
+    servoom_pixel_bean_write_webp(bean, "601799_Blink.webp");  /* animated lossless WebP */
     servoom_pixel_bean_free(bean);
 }
 
 servoom_layer_bean *layer = NULL;
-if (servoom_layer_decode_file("1234567_layer.dat", &layer) == SERVOOM_OK) {
+if (servoom_layer_decode_file("1234_layer.dat", &layer) == SERVOOM_OK) {
     uint8_t *frame = malloc(layer->width * layer->height * 3);
-    servoom_layer_composite_frame(layer, 0, frame);        /* app-style composite */
-    const uint8_t *bottom = servoom_layer_bitmap(layer, 0, 0); /* raw layer bitmap */
+    servoom_layer_composite_frame(layer, 0, frame);            /* app-style composite */
     servoom_layer_bean_free(layer);
 }
 
-char md5[33];
-servoom_md5_hex(password, strlen(password), md5);
-servoom_client *c = servoom_client_new(email, md5, NULL);
-if (servoom_client_login(c) == SERVOOM_OK) {
-    cJSON *info = NULL;
-    servoom_client_gallery_info(c, 1234567, &info);
-    char *path = NULL;
-    servoom_client_download_artwork(c, 1234567, "downloads", &path, NULL);
-    cJSON_Delete(info); free(path);
-}
-servoom_client_free(c);
-
-/* Most listings need no account at all (CLOUD_API.md, "Anonymous access"). */
+/* Most listings need no account (CLOUD_API.md, "Anonymous access"). */
 servoom_client *a = servoom_client_new_anonymous(NULL);
 cJSON *extra = cJSON_CreateObject();
 cJSON_AddNumberToObject(extra, "FileSort", SERVOOM_SORT_POPULAR);
 cJSON_AddNumberToObject(extra, "FileSize", SERVOOM_SIZE_64 | SERVOOM_SIZE_128);
 servoom_client_list_category(a, SERVOOM_CAT_ANIMAL, 90, extra, on_item, userdata);
-servoom_client_list_experts(a, 30, on_item, userdata);      /* each with 5 sample artworks */
 servoom_client_list_forum_posts(a, SERVOOM_REGION_INTERNATIONAL, -1, 1, 50, on_item, userdata);
 cJSON *albums = NULL;
-servoom_client_collect(a, SERVOOM_EP_ALBUMS, NULL, 0, &albums); /* generic call over the table */
-cJSON_Delete(extra); cJSON_Delete(albums);
+servoom_client_collect(a, SERVOOM_EP_ALBUMS, NULL, 0, &albums);   /* generic call over the table */
 servoom_client_free(a);
+
+/* Downloads and the account's own lists need a login. */
+char md5[33];
+servoom_md5_hex(password, strlen(password), md5);
+servoom_client *c = servoom_client_new(email, md5, NULL);
+if (servoom_client_login(c) == SERVOOM_OK) {
+    char *path = NULL;
+    servoom_client_download_artwork(c, 601799, "downloads", &path, NULL);
+    free(path);
+}
+servoom_client_free(c);
 ```
 
-The client mirrors `servoom.client.DivoomClient` one function per Python method (gallery
-listings, comments, users, medals, playlists, albums, the forum feed, the notification
-inbox), all read-only, on top of an endpoint table (`servoom_endpoint_get`) and two generic
-calls, `servoom_client_lookup` and `servoom_client_list`. `servoom_client_filters` builds
-the filter block the gallery listings take; the constants (`servoom_gallery_sort`,
-`servoom_gallery_size`, `servoom_gallery_category`, ...) are the ones from
-`servoom.const`. Listings advance by the number of items each page returned, because the
-server caps a page at 30 or 100 items and silently truncates larger windows.
+The client mirrors `DivoomClient` one function per Python method (listings, comments,
+users, medals, playlists, albums, the forum feed, the inbox), all read-only, on top of an
+endpoint table (`servoom_endpoint_get`) and two generic calls, `servoom_client_lookup` and
+`servoom_client_list`. The constants (`servoom_gallery_sort`, `servoom_gallery_size`,
+`servoom_gallery_category`, ...) are the ones from `servoom.const`. Listings advance by
+the number of items each page returned, because the server caps a page at 30 or 100 items
+and truncates larger windows.
 
-Decoded frames are row-major 24-bit RGB, frame-major, exactly what the Python
-`PixelBean.frames_data` holds. Besides decoding, the library can write an animation as an
-animated lossless WebP (below); GIF and PSD output stay with the Python library and the
-web app.
+| Header | Provides |
+|--------|----------|
+| `pixel_bean.h` | decode artworks to RGB frames; PPM and WebP output |
+| `layer_file.h` | decode layer files (0x27, 0x28) to layer bitmaps and composite frames |
+| `client.h` | the cloud client, endpoint table and constants |
+| `digest.h` | SHA-256 and MD5 |
+| `status.h` | status codes |
 
 ### WebP output
 
-`servoom_pixel_bean_write_webp()` / `servoom_pixel_bean_encode_webp()` produce what the
-Python `PixelBean.save_to_webp()` produces: an animated lossless WebP, every frame lasting
-`speed` ms, looping forever, made with the same libwebp `WebPAnimEncoder` and the same
-settings Pillow uses (quality 80, method 0, kmin 9, kmax 17). The CLI's `decode` and
-`decode-layer` write it as `DIR/NAME.webp` next to the frames unless `--no-webp` is given.
+`servoom_pixel_bean_write_webp()` produces what `PixelBean.save_to_webp()` produces: an
+animated lossless WebP, every frame lasting `speed` ms, looping forever, through the same
+libwebp `WebPAnimEncoder` settings Pillow uses. Pixels round-trip exactly. The frame count
+may not: libwebp merges runs of identical consecutive frames into one longer frame (as
+Pillow does), so the timeline is preserved but a still or an all-identical animation
+becomes a plain WebP without timing. The bytes match Pillow's while both link the same
+libwebp (1.6.0 today); the tests compare pixels and timeline, never bytes.
+`-DSERVOOM_WITH_WEBP_ENCODER=OFF` removes the writer (`servoom_has_webp_encoder()` tells).
 
-What "lossless" does and does not mean here:
+## Formats
 
-* **Pixels round-trip exactly.** Decoding the WebP gives back every RGB byte.
-* **The frame count may not.** libwebp merges runs of identical consecutive frames into a
-  single longer frame (Pillow's output has the same property). The *timeline* is preserved:
-  a run of *n* identical frames becomes one frame of *n × speed* ms. An artwork with a single
-  frame (or all frames identical) becomes a plain still WebP with no timing at all, again as
-  with Pillow. Tests therefore compare the decoded WebP against the original frames run by
-  run, never by frame count.
-* **Bytes are not a contract.** The file is byte-identical to Pillow's only while both link
-  the same libwebp version (1.6.0 on both sides at the time of writing, and the output *is*
-  byte-identical on every corpus sample tried). The tests deliberately do not assert this.
+Artworks: 8, 9, 12 (scrolling banner, decoded as its 64-frame marquee;
+`servoom_pixel_bean_banner_strip()` recovers the 64x16 strip), 17, 18, 26 (flat and
+hierarchical frames), 31, 41, 42, 43. Layer files: 0x27 (raw RGB) and 0x28 (WebP layers).
+What each container holds is documented in [`FILE_FORMATS.md`](../FILE_FORMATS.md).
 
-`-DSERVOOM_WITH_WEBP_ENCODER=OFF` leaves the writer out; the functions then return
-`SERVOOM_ERR_UNSUPPORTED` (`servoom_has_webp_encoder()` tells in advance) and the CLI prints
-a note instead of a `.webp`. The encoder adds no dependency: libwebp is fetched for decoding
-anyway, only `libwebpmux` gets linked in addition.
+The port reproduces the Python decoders including their quirks, because the corpus test
+demands identical bytes:
 
-Supported artwork formats: 8, 9, 12 (scrolling banner, decoded as its 64-frame marquee;
-`servoom_pixel_bean_banner_strip()` recovers the flat 64x16 strip), 17, 18, 26 (0x0C and
-hierarchical 0x11/0x13/0x15 frames), 31, 41, 42, 43 (embedded GIF or WebP). Layer files: 0x27 (raw RGB) and 0x28
-(WebP layers). Which of these hold stills, animations or both is documented with evidence
-in [`FILE_FORMATS.md`](../FILE_FORMATS.md).
+- Formats 9/17/18 place 16x16 tiles row-major with the Python tile loop, including the
+  non-square multi-panel strips of format 18.
+- Format 26 zero-pads 0x0C frames on a non-64x64 canvas; a frame that fails to parse is
+  replaced by a copy of the previous one (or black) and decoding continues.
+- Format 43 GIFs go through a re-implementation of Pillow's `GifImagePlugin` semantics
+  (disposal, palette handling, RGB promotion) and are composited over white with Pillow's
+  blend arithmetic; JPEG frames use libjpeg-turbo with Pillow's settings.
+- Layer composites round like NumPy (half to even).
 
-Coverage of the (local-only, unpublished) reference corpus at the time of writing, all
-byte-identical to Python:
-
-| Format | Samples | Format | Samples |
-|-------:|--------:|-------:|--------:|
-| 8      | 40      | 31     | 147     |
-| 9      | 322     | 41     | 14      |
-| 12     | 40      | 42     | 398     |
-| 17     | 86      | 43     | 98      |
-| 18     | 185     | 0x27   | 40      |
-| 26     | 587     | 0x28   | 40      |
-
-Format 41 (JPEG sequence at 256x256) never shows up in the gallery feeds; the 14 samples
-all come from the upload history of a single user. The synthetic file generated by the
-Python decoder (`tests/gen_vectors.py`) still covers it in the unit tests.
-
-### Parity notes
-
-The port reproduces the Python decoders *including their quirks*, because the corpus
-test demands identical bytes. Some are worth knowing:
-
-* Formats 9/17/18 place 16x16 tiles row-major with the Python `_compact` loop (the tile
-  column wraps at `column_count`; format 18 also carries non-square 1xN / Nx1 multi-panel
-  strips, see `FILE_FORMATS.md`).
-* Format 26 with 0x0C frames on a non-64x64 canvas zero-pads each 4096-pixel frame to the
-  canvas (Python's `_frames_from_rgb`).
-* Frames that fail to parse in format 26 are replaced by a copy of the previous frame (or
-  a black frame), and decoding continues at the next declared offset.
-* Format 43 GIFs are decoded with a re-implementation of Pillow's `GifImagePlugin`
-  semantics (sticky disposal method, palette handling, RGB-after-first-frame promotion)
-  and composited over white with Pillow's `paste` blend arithmetic. JPEG frames go
-  through libjpeg-turbo with Pillow's settings (ISLOW IDCT, fancy upsampling).
-* The layer-file composite rounds like NumPy (`round` half to even).
-
-## Command-line tool
-
-```
-servoom info FILE...                       JSON summary + SHA-256 of the decoded frames
-servoom decode FILE [-o DIR] [--no-webp]   frames as frame_NNN.ppm / .rgb + NAME.webp
-servoom decode-layer FILE [-o DIR] [--no-webp]
-                                           composite frames + NAME.webp + raw layer bitmaps (.rgb)
-servoom md5 TEXT                           MD5 hex (to produce SERVOOM_MD5_PASSWORD)
-servoom gallery-info GALLERY_ID            GalleryInfo JSON                  (credentials)
-servoom download GALLERY_ID [-o DIR]       artwork + its layer file          (credentials)
-servoom download-user USER_ID [-o DIR] [--limit N]                           (credentials)
-servoom list-category CATEGORY [--limit N] [--size MASK] [--type T] [--sort 0|1]
-servoom list-user USER_ID [--limit N]      a user's uploads
-servoom search QUERY [--limit N]           gallery search
-servoom list-experts [--limit N]           ranked artists, one JSON record per line
-servoom list-albums [--limit N]            curated albums
-servoom album-arts ALBUM_ID [--limit N]
-servoom comments GALLERY_ID [--limit N]    threaded comments, one JSON record per line
-servoom forum-posts [--limit N] [--region 1|86] [--tag T]
-servoom user-info USER_ID                  profile JSON
-```
-
-Credentials: `SERVOOM_EMAIL` plus `SERVOOM_MD5_PASSWORD` or `SERVOOM_PASSWORD`, as in the
-Python CLI. Never commit them. Without credentials the cloud commands run anonymously,
-which the listings above allow; `gallery-info`, `download` and `download-user` need a
-token (`CLOUD_API.md` lists which endpoints answer anonymously).
-
-## Testing
+## Tests
 
 `ctest --test-dir build` runs three programs:
 
-* **test_units** — digests, the LZO1X and AES codecs, tile placement, resizing, and
-  synthetic container files for every format whose expected output was produced by the
-  Python decoders (`tests/vectors.h`, regenerated with `python tests/gen_vectors.py`);
-  plus the WebP writer (encode → decode round trip, duplicate-frame merging, speed 0, the
-  compiled-out stub).
-* **test_corpus** — decodes every file in the local reference corpus (`../corpus/`) and
-  compares frame count, canvas, speed and the SHA-256 of all decoded RGB bytes with
-  `corpus/baseline.json`, the Python decoders' output. Layer files additionally compare the
-  parsed layer table and the raw layer bitmaps. Every file that decodes is also written as
-  WebP, decoded again and compared pixel by pixel and along the timeline (layer files via
-  their composite). It also decodes truncated and bit-flipped copies of every file, which
-  must never crash. `SERVOOM_NO_MUTATE=1` skips that (slow) pass. Skipped (exit 77) when no corpus is present;
-  the corpus is not published (see `../corpus/README.md`).
-* **test_live** — first anonymously (page-cap handling across a 70-item window, experts,
-  profiles, medals, search, albums, forum posts, and a token-only call that must fail),
-  then logged in: the account's own uploads, a public category feed, gallery info, a
-  download that is decoded, and one call to every forum, tag, discovery, playlist and inbox
-  function. Skipped unless `SERVOOM_EMAIL`/`SERVOOM_PASSWORD` are set.
+| Program | What it checks |
+|---------|----------------|
+| `test_units` | digests, the LZO1X and AES codecs, tile placement, resizing, one synthetic file per format (expected output from the Python decoders, `tests/vectors.h`, regenerated with `python tests/gen_vectors.py`), the WebP writer |
+| `test_corpus` | every file of the local reference corpus against `corpus/baseline.json` (frame count, canvas, speed, SHA-256 of all RGB bytes; layer tables and bitmaps for layer files), a WebP round trip per file, and truncated or bit-flipped copies that must never crash (`SERVOOM_NO_MUTATE=1` skips that pass). Skipped without a corpus; see [`corpus/README.md`](../corpus/README.md) |
+| `test_live` | the cloud client, first anonymously (page caps across a 70-item window, experts, profiles, medals, search, albums, forum posts, a token-only call that must fail), then logged in with one call to every function. Skipped unless `SERVOOM_EMAIL` and `SERVOOM_PASSWORD` are set |
+
+## Layout
+
+```
+include/servoom/   public headers (servoom.h is the umbrella)
+src/util/          byte buffers, file I/O, SHA-256, MD5
+src/codec/         LZO1X and GIF (in-house), AES-CBC, zstd, JPEG, WebP, compositing, WebP writer
+src/decoders/      one file per artwork container format
+src/layer/         layer-file decoder
+src/client/        libcurl transport, client core, endpoint table, per-method wrappers
+cli/main.c         the servoom executable
+tests/             unit tests, corpus parity test, live client test
+third_party/       vendored single-file libraries (tiny-AES-c, cJSON)
+cmake/deps.cmake   fetched dependencies
+```
 
 ## Dependencies and licenses
 
-| Library         | Version | How            | License                |
-|-----------------|---------|----------------|------------------------|
-| tiny-AES-c      | 2024-10 | vendored       | Unlicense              |
-| cJSON           | 1.7.18  | vendored       | MIT                    |
-| zstd            | 1.5.7   | FetchContent   | BSD-3 / GPLv2          |
-| libwebp         | 1.6.0   | FetchContent   | BSD-3                  |
-| libjpeg-turbo   | 3.1.2   | ExternalProject| IJG / BSD-3 / zlib     |
-| curl            | 8.16.0  | FetchContent   | curl (MIT-like)        |
+| Library | Version | How | License |
+|---------|---------|-----|---------|
+| tiny-AES-c | 2024-10 | vendored | Unlicense |
+| cJSON | 1.7.18 | vendored | MIT |
+| zstd | 1.5.7 | FetchContent | BSD-3 / GPLv2 |
+| libwebp | 1.6.0 | FetchContent | BSD-3 |
+| libjpeg-turbo | 3.1.2 | ExternalProject | IJG / BSD-3 / zlib |
+| curl | 8.16.0 | FetchContent | curl (MIT-like) |
 
-LZO1X decompression and the GIF reader are written in-house (no minilzo/giflib), so the
-library carries no GPL code.
+LZO1X decompression and the GIF reader are written in-house, so the library carries no
+GPL code.

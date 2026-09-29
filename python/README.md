@@ -1,7 +1,9 @@
 # servoom (Python)
 
 The `servoom` library and command-line tool: a read-only client for the Divoom cloud and
-decoders for every artwork container seen in the wild. Run everything from this directory.
+decoders for every artwork container seen in the wild. The Python decoders are the
+specification the C port and the web app are tested against. Run everything from this
+directory. Part of [servoom](../README.md).
 
 ## Install
 
