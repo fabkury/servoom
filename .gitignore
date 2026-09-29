@@ -13,3 +13,6 @@ corpus/baseline.json
 
 # Local scratch downloads of artworks must never be committed.
 reference-animations/
+
+# Private materials (APK, decompiled sources, raw notes): separate private repo, never published.
+private/
