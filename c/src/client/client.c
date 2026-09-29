@@ -11,18 +11,7 @@
 #define API_HOST "app.divoom-gz.com"
 #define FILE_HOST "f.divoom-gz.com"
 
-#define EP_USER_LOGIN "/UserLogin"
-#define EP_GALLERY_INFO "/Cloud/GalleryInfo"
-#define EP_MY_UPLOADS "/GetMyUploadListV3"
-#define EP_LIKE_USERS "/Cloud/GetLikeUserList"
-#define EP_SOMEONE_INFO "/GetSomeoneInfoV2"
-#define EP_SOMEONE_LIST "/GetSomeoneListV2"
-#define EP_CATEGORY_FILES "/GetCategoryFileListV2"
-#define EP_SEARCH_USER "/SearchUser"
-#define EP_SEARCH_TAG "/Tag/SearchTagMoreV2"
-#define EP_SEARCH_GALLERY "/SearchGalleryV3"
-#define EP_TAG_INFO "/Tag/GetTagInfo"
-#define EP_TAG_GALLERY "/Tag/GetTagGalleryListV3"
+#define EP_PATH(ep) (servoom_endpoint_get(ep)->path)
 
 #define ALL_FILE_SIZES 0x3F
 
@@ -35,6 +24,7 @@ struct servoom_client {
     char *token;
     int token_is_number; /* echo it back as a JSON number, exactly as received */
     int64_t user_id;
+    int anonymous; /* no credentials: send no Token/UserId (Python anonymous=True) */
     char last_error[512];
 };
 
@@ -52,11 +42,8 @@ void servoom_client_settings_default(servoom_client_settings *s)
     s->user_agent = "Aurabox/3.1.10 (iPad; iOS 14.8; Scale/2.00)";
 }
 
-servoom_client *servoom_client_new(const char *email, const char *md5_password,
-                                   const servoom_client_settings *settings)
+static servoom_client *client_alloc(const servoom_client_settings *settings)
 {
-    if (!email || !md5_password)
-        return NULL;
     servoom_client *c = (servoom_client *)calloc(1, sizeof(*c));
     if (!c)
         return NULL;
@@ -68,18 +55,43 @@ servoom_client *servoom_client_new(const char *email, const char *md5_password,
         c->settings.batch_size = 40;
     if (c->settings.max_retries <= 0)
         c->settings.max_retries = 1;
-    c->email = sv_strdup(email);
-    c->md5_password = sv_strdup(md5_password);
     c->user_agent = sv_strdup(c->settings.user_agent ? c->settings.user_agent
                                                      : "Aurabox/3.1.10 (iPad; iOS 14.8; Scale/2.00)");
     c->settings.user_agent = c->user_agent;
     c->http = sv_http_new(c->user_agent, c->settings.timeout_seconds);
-    if (!c->email || !c->md5_password || !c->user_agent || (!c->http && SERVOOM_WITH_CLIENT)) {
+    if (!c->user_agent || (!c->http && SERVOOM_WITH_CLIENT)) {
         servoom_client_free(c);
         return NULL;
     }
     return c;
 }
+
+servoom_client *servoom_client_new(const char *email, const char *md5_password,
+                                   const servoom_client_settings *settings)
+{
+    if (!email || !md5_password)
+        return NULL;
+    servoom_client *c = client_alloc(settings);
+    if (!c)
+        return NULL;
+    c->email = sv_strdup(email);
+    c->md5_password = sv_strdup(md5_password);
+    if (!c->email || !c->md5_password) {
+        servoom_client_free(c);
+        return NULL;
+    }
+    return c;
+}
+
+servoom_client *servoom_client_new_anonymous(const servoom_client_settings *settings)
+{
+    servoom_client *c = client_alloc(settings);
+    if (c)
+        c->anonymous = 1;
+    return c;
+}
+
+int servoom_client_is_anonymous(const servoom_client *c) { return c ? c->anonymous : 0; }
 
 void servoom_client_free(servoom_client *c)
 {
@@ -182,18 +194,20 @@ static servoom_status merge_into(cJSON *dst, const cJSON *src)
 static servoom_status auth_payload(servoom_client *c, const cJSON *payload, cJSON **out)
 {
     *out = NULL;
-    if (!servoom_client_is_logged_in(c)) {
+    if (!c->anonymous && !servoom_client_is_logged_in(c)) {
         set_error(c, "Not logged in! Call login() first.");
         return SERVOOM_ERR_STATE;
     }
     cJSON *p = cJSON_CreateObject();
     if (!p)
         return SERVOOM_ERR_NOMEM;
-    if (c->token_is_number)
-        cJSON_AddNumberToObject(p, "Token", strtod(c->token, NULL));
-    else
-        cJSON_AddStringToObject(p, "Token", c->token);
-    cJSON_AddNumberToObject(p, "UserId", (double)c->user_id);
+    if (!c->anonymous) {
+        if (c->token_is_number)
+            cJSON_AddNumberToObject(p, "Token", strtod(c->token, NULL));
+        else
+            cJSON_AddStringToObject(p, "Token", c->token);
+        cJSON_AddNumberToObject(p, "UserId", (double)c->user_id);
+    }
     if (payload && merge_into(p, payload) != SERVOOM_OK) {
         cJSON_Delete(p);
         return SERVOOM_ERR_NOMEM;
@@ -207,13 +221,17 @@ servoom_status servoom_client_login(servoom_client *c)
 {
     if (!c)
         return SERVOOM_ERR_ARG;
+    if (c->anonymous) {
+        set_error(c, "Cannot login: client was created anonymous");
+        return SERVOOM_ERR_STATE;
+    }
     cJSON *p = cJSON_CreateObject();
     if (!p)
         return SERVOOM_ERR_NOMEM;
     cJSON_AddStringToObject(p, "Email", c->email);
     cJSON_AddStringToObject(p, "Password", c->md5_password);
     cJSON *resp = NULL;
-    servoom_status st = post_raw(c, EP_USER_LOGIN, p, &resp);
+    servoom_status st = post_raw(c, EP_PATH(SERVOOM_EP_USER_LOGIN), p, &resp);
     cJSON_Delete(p);
     if (st != SERVOOM_OK)
         return st;
@@ -286,7 +304,7 @@ servoom_status servoom_client_gallery_info(servoom_client *c, int64_t gallery_id
     if (!p)
         return SERVOOM_ERR_NOMEM;
     cJSON_AddNumberToObject(p, "GalleryId", (double)gallery_id);
-    servoom_status st = lookup(c, EP_GALLERY_INFO, p, out);
+    servoom_status st = lookup(c, EP_PATH(SERVOOM_EP_GALLERY_INFO), p, out);
     if (st == SERVOOM_OK) {
         /* not always echoed back */
         cJSON_DeleteItemFromObjectCaseSensitive(*out, "GalleryId");
@@ -303,7 +321,7 @@ servoom_status servoom_client_someone_info(servoom_client *c, int64_t user_id, c
     if (!p)
         return SERVOOM_ERR_NOMEM;
     cJSON_AddNumberToObject(p, "SomeOneUserId", (double)user_id);
-    return lookup(c, EP_SOMEONE_INFO, p, out);
+    return lookup(c, EP_PATH(SERVOOM_EP_SOMEONE_INFO), p, out);
 }
 
 servoom_status servoom_client_tag_info(servoom_client *c, const char *tag_name, cJSON **out)
@@ -314,7 +332,7 @@ servoom_status servoom_client_tag_info(servoom_client *c, const char *tag_name, 
     if (!p)
         return SERVOOM_ERR_NOMEM;
     cJSON_AddStringToObject(p, "TagName", tag_name);
-    return lookup(c, EP_TAG_INFO, p, out);
+    return lookup(c, EP_PATH(SERVOOM_EP_TAG_INFO), p, out);
 }
 
 static servoom_status search_list(servoom_client *c, const char *path, const char *query,
@@ -346,14 +364,30 @@ static servoom_status search_list(servoom_client *c, const char *path, const cha
     return list ? SERVOOM_OK : SERVOOM_ERR_NOMEM;
 }
 
+static servoom_status collect_tags_first_page(servoom_client *c, const char *query, cJSON **out_list);
+
 servoom_status servoom_client_search_user(servoom_client *c, const char *query, cJSON **out_list)
 {
-    return search_list(c, EP_SEARCH_USER, query, "UserList", out_list);
+    return search_list(c, EP_PATH(SERVOOM_EP_SEARCH_USER), query, "UserList", out_list);
 }
 
 servoom_status servoom_client_search_tag(servoom_client *c, const char *query, cJSON **out_list)
 {
-    return search_list(c, EP_SEARCH_TAG, query, "TagList", out_list);
+    /* One window of the paginated listing: Tag/SearchTagMoreV2 answers ReturnCode 1
+     * without StartNum/EndNum/FileSize/FileSort. */
+    if (!c || !query || !out_list)
+        return SERVOOM_ERR_ARG;
+    return collect_tags_first_page(c, query, out_list);
+}
+
+static cJSON *payload_with_extra(const cJSON *extra)
+{
+    cJSON *p = cJSON_CreateObject();
+    if (p && extra && merge_into(p, extra) != SERVOOM_OK) {
+        cJSON_Delete(p);
+        return NULL;
+    }
+    return p;
 }
 
 /* ---- pagination (Python servoom.http.paginate) --------------------------- */
@@ -400,9 +434,10 @@ static servoom_status paginate(servoom_client *c, const char *path, cJSON *base_
             cJSON_Delete(resp);
             break;
         }
-        int stop = 0;
+        int stop = 0, received = 0;
         const cJSON *item;
         cJSON_ArrayForEach(item, items) {
+            received++;
             if (keep_hidden_check && c->settings.respect_hide_flag) {
                 const cJSON *hf = cJSON_GetObjectItemCaseSensitive(item, "HideFlag");
                 if ((cJSON_IsNumber(hf) && hf->valuedouble != 0) || cJSON_IsTrue(hf))
@@ -421,20 +456,108 @@ static servoom_status paginate(servoom_client *c, const char *path, cJSON *base_
         cJSON_Delete(resp);
         if (stop)
             break;
-        start += batch;
+        start += received; /* not `batch`: the server caps a page and truncates the window */
     }
     cJSON_Delete(base_payload);
     return st;
 }
 
-static cJSON *payload_with_extra(const cJSON *extra)
+/* ---- generic calls over the endpoint table ------------------------------- */
+cJSON *servoom_client_filters(const servoom_client *c, const cJSON *extra)
 {
+    if (!c)
+        return NULL;
     cJSON *p = cJSON_CreateObject();
-    if (p && extra && merge_into(p, extra) != SERVOOM_OK) {
+    if (!p)
+        return NULL;
+    cJSON_AddNumberToObject(p, "Classify", 0);
+    cJSON_AddNumberToObject(p, "FileSize", c->settings.file_size_filter);
+    cJSON_AddNumberToObject(p, "FileType", 5);
+    cJSON_AddNumberToObject(p, "FileSort", 0);
+    cJSON_AddNumberToObject(p, "Version", 19);
+    cJSON_AddNumberToObject(p, "RefreshIndex", 0);
+    if (extra && merge_into(p, extra) != SERVOOM_OK) {
         cJSON_Delete(p);
         return NULL;
     }
     return p;
+}
+
+servoom_status servoom_client_lookup(servoom_client *c, servoom_endpoint ep, const cJSON *payload, cJSON **out)
+{
+    const servoom_endpoint_info *info = servoom_endpoint_get(ep);
+    if (!c || !out || !info)
+        return SERVOOM_ERR_ARG;
+    cJSON *p = payload_with_extra(payload);
+    if (!p)
+        return SERVOOM_ERR_NOMEM;
+    return lookup(c, info->path, p, out);
+}
+
+servoom_status servoom_client_list(servoom_client *c, servoom_endpoint ep, const cJSON *payload, int limit,
+                                   servoom_item_fn on_item, void *ud)
+{
+    const servoom_endpoint_info *info = servoom_endpoint_get(ep);
+    if (!c || !info || !info->list_keys)
+        return SERVOOM_ERR_ARG;
+    cJSON *p = payload_with_extra(payload);
+    if (!p)
+        return SERVOOM_ERR_NOMEM;
+    return paginate(c, info->path, p, info->list_keys, 1, limit, on_item, ud);
+}
+
+static int collect_cb(const cJSON *item, void *ud);
+
+servoom_status servoom_client_collect(servoom_client *c, servoom_endpoint ep, const cJSON *payload, int limit,
+                                      cJSON **out_array)
+{
+    if (!out_array)
+        return SERVOOM_ERR_ARG;
+    *out_array = cJSON_CreateArray();
+    if (!*out_array)
+        return SERVOOM_ERR_NOMEM;
+    servoom_status st = servoom_client_list(c, ep, payload, limit, collect_cb, *out_array);
+    if (st != SERVOOM_OK) {
+        cJSON_Delete(*out_array);
+        *out_array = NULL;
+    }
+    return st;
+}
+
+servoom_status servoom_client_list_tags(servoom_client *c, const char *query, int limit, const cJSON *extra,
+                                        servoom_item_fn on_item, void *ud)
+{
+    if (!c || !query)
+        return SERVOOM_ERR_ARG;
+    cJSON *p = cJSON_CreateObject();
+    if (!p)
+        return SERVOOM_ERR_NOMEM;
+    cJSON_AddStringToObject(p, "Keywords", query);
+    cJSON_AddNumberToObject(p, "FileSize", c->settings.file_size_filter);
+    cJSON_AddNumberToObject(p, "FileSort", 0);
+    if (extra && merge_into(p, extra) != SERVOOM_OK) {
+        cJSON_Delete(p);
+        return SERVOOM_ERR_NOMEM;
+    }
+    servoom_status st = servoom_client_list(c, SERVOOM_EP_SEARCH_TAG, p, limit, on_item, ud);
+    cJSON_Delete(p);
+    return st;
+}
+
+static servoom_status collect_tags_first_page(servoom_client *c, const char *query, cJSON **out_list)
+{
+    if (!out_list)
+        return SERVOOM_ERR_ARG;
+    *out_list = cJSON_CreateArray();
+    if (!*out_list)
+        return SERVOOM_ERR_NOMEM;
+    servoom_status st = servoom_client_list_tags(c, query, c->settings.batch_size, NULL, collect_cb, *out_list);
+    if (st != SERVOOM_OK && st != SERVOOM_ERR_API) {
+        cJSON_Delete(*out_list);
+        *out_list = NULL;
+        return st;
+    }
+    return SERVOOM_OK;
 }
 
 servoom_status servoom_client_list_my_uploads(servoom_client *c, int limit, const cJSON *extra,
@@ -454,7 +577,7 @@ servoom_status servoom_client_list_my_uploads(servoom_client *c, int limit, cons
         cJSON_Delete(p);
         return SERVOOM_ERR_NOMEM;
     }
-    return paginate(c, EP_MY_UPLOADS, p, keys, 1, limit, on_item, ud);
+    return paginate(c, EP_PATH(SERVOOM_EP_MY_UPLOADS), p, keys, 1, limit, on_item, ud);
 }
 
 servoom_status servoom_client_list_someone_uploads(servoom_client *c, int64_t user_id, int limit,
@@ -476,7 +599,7 @@ servoom_status servoom_client_list_someone_uploads(servoom_client *c, int64_t us
         cJSON_Delete(p);
         return SERVOOM_ERR_NOMEM;
     }
-    return paginate(c, EP_SOMEONE_LIST, p, keys, 1, limit, on_item, ud);
+    return paginate(c, EP_PATH(SERVOOM_EP_SOMEONE_LIST), p, keys, 1, limit, on_item, ud);
 }
 
 servoom_status servoom_client_list_category(servoom_client *c, int category_id, int limit,
@@ -498,7 +621,7 @@ servoom_status servoom_client_list_category(servoom_client *c, int category_id, 
         cJSON_Delete(p);
         return SERVOOM_ERR_NOMEM;
     }
-    return paginate(c, EP_CATEGORY_FILES, p, keys, 1, limit, on_item, ud);
+    return paginate(c, EP_PATH(SERVOOM_EP_CATEGORY_FILES), p, keys, 1, limit, on_item, ud);
 }
 
 servoom_status servoom_client_list_tag_gallery(servoom_client *c, const char *tag_name, int limit,
@@ -507,12 +630,14 @@ servoom_status servoom_client_list_tag_gallery(servoom_client *c, const char *ta
     static const char *const keys[] = {"FileList", NULL};
     if (!c || !tag_name)
         return SERVOOM_ERR_ARG;
-    cJSON *p = payload_with_extra(extra);
+    cJSON *p = servoom_client_filters(c, extra);
     if (!p)
         return SERVOOM_ERR_NOMEM;
     cJSON_DeleteItemFromObjectCaseSensitive(p, "TagName");
     cJSON_AddStringToObject(p, "TagName", tag_name);
-    return paginate(c, EP_TAG_GALLERY, p, keys, 1, limit, on_item, ud);
+    if (!cJSON_HasObjectItem(p, "Mode"))
+        cJSON_AddNumberToObject(p, "Mode", 0);
+    return paginate(c, EP_PATH(SERVOOM_EP_TAG_GALLERY), p, keys, 1, limit, on_item, ud);
 }
 
 servoom_status servoom_client_search_gallery(servoom_client *c, const char *query, int limit,
@@ -521,12 +646,16 @@ servoom_status servoom_client_search_gallery(servoom_client *c, const char *quer
     static const char *const keys[] = {"FileList", NULL};
     if (!c || !query)
         return SERVOOM_ERR_ARG;
-    cJSON *p = payload_with_extra(extra);
+    /* The filter block is always sent: with Keywords alone the server applies a narrow
+     * default and answers a handful of items. */
+    cJSON *p = servoom_client_filters(c, extra);
     if (!p)
         return SERVOOM_ERR_NOMEM;
     cJSON_DeleteItemFromObjectCaseSensitive(p, "Keywords");
     cJSON_AddStringToObject(p, "Keywords", query);
-    return paginate(c, EP_SEARCH_GALLERY, p, keys, 1, limit, on_item, ud);
+    if (!cJSON_HasObjectItem(p, "KeywordsEn"))
+        cJSON_AddStringToObject(p, "KeywordsEn", query);
+    return paginate(c, EP_PATH(SERVOOM_EP_SEARCH_GALLERY), p, keys, 1, limit, on_item, ud);
 }
 
 servoom_status servoom_client_list_like_users(servoom_client *c, int64_t gallery_id, int limit,
@@ -539,7 +668,7 @@ servoom_status servoom_client_list_like_users(servoom_client *c, int64_t gallery
     if (!p)
         return SERVOOM_ERR_NOMEM;
     cJSON_AddNumberToObject(p, "GalleryId", (double)gallery_id);
-    return paginate(c, EP_LIKE_USERS, p, keys, 1, limit, on_item, ud);
+    return paginate(c, EP_PATH(SERVOOM_EP_LIKE_USERS), p, keys, 1, limit, on_item, ud);
 }
 
 static int collect_cb(const cJSON *item, void *ud)

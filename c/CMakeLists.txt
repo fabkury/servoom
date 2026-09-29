@@ -58,7 +58,7 @@ if(SERVOOM_WITH_WEBP_ENCODER)
   list(APPEND SERVOOM_SOURCES src/codec/webp_encode.c)
 endif()
 if(SERVOOM_WITH_CLIENT)
-  list(APPEND SERVOOM_SOURCES src/client/http.c src/client/client.c)
+  list(APPEND SERVOOM_SOURCES src/client/http.c src/client/client.c src/client/endpoints.c src/client/methods.c)
 endif()
 
 add_library(servoom STATIC ${SERVOOM_SOURCES})

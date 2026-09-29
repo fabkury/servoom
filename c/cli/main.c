@@ -30,7 +30,17 @@ static void usage(void)
           "  gallery-info GALLERY_ID\n"
           "  download GALLERY_ID [-o DIR] [--no-layer]\n"
           "  download-user USER_ID [-o DIR] [--limit N]\n"
-          "  list-category CATEGORY [--limit N] [--size MASK] [--type T]\n",
+          "  list-category CATEGORY [--limit N] [--size MASK] [--type T] [--sort 0|1]\n"
+          "  list-user USER_ID [--limit N]\n"
+          "  search QUERY [--limit N]\n"
+          "  list-experts [--limit N]\n"
+          "  list-albums [--limit N]\n"
+          "  album-arts ALBUM_ID [--limit N]\n"
+          "  comments GALLERY_ID [--limit N]\n"
+          "  forum-posts [--limit N] [--region 1|86] [--tag T]\n"
+          "  user-info USER_ID\n"
+          "Cloud commands log in with SERVOOM_EMAIL + SERVOOM_MD5_PASSWORD (or SERVOOM_PASSWORD);\n"
+          "without them they run anonymously (see CLOUD_API.md for what that allows).\n",
           stderr);
 }
 
@@ -257,8 +267,12 @@ static servoom_client *make_client(void)
     const char *plain = getenv("SERVOOM_PASSWORD");
     char buf[33];
     if (!email || !*email || (!(md5 && *md5) && !(plain && *plain))) {
-        fputs("set SERVOOM_EMAIL and SERVOOM_MD5_PASSWORD (or SERVOOM_PASSWORD)\n", stderr);
-        return NULL;
+        servoom_client *a = servoom_client_new_anonymous(NULL);
+        if (!a)
+            fputs("client init failed (built without the cloud client?)\n", stderr);
+        else
+            fputs("no credentials in the environment: running anonymously\n", stderr);
+        return a;
     }
     if (!(md5 && *md5)) {
         servoom_md5_hex(plain, strlen(plain), buf);
@@ -403,9 +417,22 @@ static int cmd_download_user(int argc, char **argv)
     return st == SERVOOM_OK && d.failed == 0 ? 0 : 1;
 }
 
+static int print_json_line(const cJSON *item, void *ud)
+{
+    (void)ud;
+    char *txt = cJSON_PrintUnformatted(item);
+    if (txt) {
+        puts(txt);
+        free(txt);
+    }
+    return 0;
+}
+
 static int print_item(const cJSON *item, void *ud)
 {
     (void)ud;
+    if (!cJSON_GetObjectItemCaseSensitive(item, "GalleryId"))
+        return print_json_line(item, ud);
     const cJSON *gid = cJSON_GetObjectItemCaseSensitive(item, "GalleryId");
     const cJSON *name = cJSON_GetObjectItemCaseSensitive(item, "FileName");
     const cJSON *user = cJSON_GetObjectItemCaseSensitive(item, "UserName");
@@ -429,16 +456,127 @@ static int cmd_list_category(int argc, char **argv)
     cJSON *extra = cJSON_CreateObject();
     const char *size = opt(argc, argv, "--size", NULL);
     const char *type = opt(argc, argv, "--type", NULL);
+    const char *sort = opt(argc, argv, "--sort", NULL);
     if (size)
         cJSON_AddNumberToObject(extra, "FileSize", atoi(size));
     if (type)
         cJSON_AddNumberToObject(extra, "FileType", atoi(type));
+    if (sort)
+        cJSON_AddNumberToObject(extra, "FileSort", atoi(sort));
     servoom_status st = servoom_client_list_category(c, atoi(argv[2]), limit, extra, print_item, NULL);
     cJSON_Delete(extra);
     if (st != SERVOOM_OK)
         fprintf(stderr, "listing failed: %s (%s)\n", servoom_status_str(st), servoom_client_last_error(c));
     servoom_client_free(c);
     return st == SERVOOM_OK ? 0 : 1;
+}
+
+static int finish_listing(servoom_client *c, servoom_status st)
+{
+    if (st != SERVOOM_OK)
+        fprintf(stderr, "listing failed: %s (%s)\n", servoom_status_str(st), servoom_client_last_error(c));
+    servoom_client_free(c);
+    return st == SERVOOM_OK ? 0 : 1;
+}
+
+static int cmd_list_user(int argc, char **argv)
+{
+    if (argc < 3) {
+        usage();
+        return 2;
+    }
+    int limit = atoi(opt(argc, argv, "--limit", "40"));
+    servoom_client *c = make_client();
+    if (!c)
+        return 1;
+    return finish_listing(c, servoom_client_list_someone_uploads(c, atoll(argv[2]), limit, NULL, print_item, NULL));
+}
+
+static int cmd_search(int argc, char **argv)
+{
+    if (argc < 3) {
+        usage();
+        return 2;
+    }
+    int limit = atoi(opt(argc, argv, "--limit", "40"));
+    servoom_client *c = make_client();
+    if (!c)
+        return 1;
+    return finish_listing(c, servoom_client_search_gallery(c, argv[2], limit, NULL, print_item, NULL));
+}
+
+static int cmd_list_experts(int argc, char **argv)
+{
+    int limit = atoi(opt(argc, argv, "--limit", "30"));
+    servoom_client *c = make_client();
+    if (!c)
+        return 1;
+    return finish_listing(c, servoom_client_list_experts(c, limit, print_json_line, NULL));
+}
+
+static int cmd_list_albums(int argc, char **argv)
+{
+    int limit = atoi(opt(argc, argv, "--limit", "30"));
+    servoom_client *c = make_client();
+    if (!c)
+        return 1;
+    return finish_listing(c, servoom_client_list_albums(c, limit, NULL, print_json_line, NULL));
+}
+
+static int cmd_album_arts(int argc, char **argv)
+{
+    if (argc < 3) {
+        usage();
+        return 2;
+    }
+    int limit = atoi(opt(argc, argv, "--limit", "40"));
+    servoom_client *c = make_client();
+    if (!c)
+        return 1;
+    return finish_listing(c, servoom_client_list_album_arts(c, atoll(argv[2]), limit, NULL, print_item, NULL));
+}
+
+static int cmd_comments(int argc, char **argv)
+{
+    if (argc < 3) {
+        usage();
+        return 2;
+    }
+    int limit = atoi(opt(argc, argv, "--limit", "40"));
+    servoom_client *c = make_client();
+    if (!c)
+        return 1;
+    return finish_listing(c, servoom_client_list_art_comments(c, atoll(argv[2]), limit, print_json_line, NULL));
+}
+
+static int cmd_forum_posts(int argc, char **argv)
+{
+    int limit = atoi(opt(argc, argv, "--limit", "30"));
+    int region = atoi(opt(argc, argv, "--region", "1"));
+    const char *tag = opt(argc, argv, "--tag", NULL);
+    servoom_client *c = make_client();
+    if (!c)
+        return 1;
+    return finish_listing(c, servoom_client_list_forum_posts(c, (servoom_forum_region)region, tag ? atoi(tag) : -1,
+                                                             1, limit, print_json_line, NULL));
+}
+
+static int cmd_user_info(int argc, char **argv)
+{
+    if (argc < 3) {
+        usage();
+        return 2;
+    }
+    servoom_client *c = make_client();
+    if (!c)
+        return 1;
+    cJSON *info = NULL;
+    servoom_status st = servoom_client_someone_info(c, atoll(argv[2]), &info);
+    if (st == SERVOOM_OK) {
+        print_json_line(info, NULL);
+        cJSON_Delete(info);
+    }
+    return finish_listing(c, st);
 }
 
 int main(int argc, char **argv)
@@ -456,6 +594,14 @@ int main(int argc, char **argv)
     if (strcmp(cmd, "download") == 0) return cmd_download(argc, argv);
     if (strcmp(cmd, "download-user") == 0) return cmd_download_user(argc, argv);
     if (strcmp(cmd, "list-category") == 0) return cmd_list_category(argc, argv);
+    if (strcmp(cmd, "list-user") == 0) return cmd_list_user(argc, argv);
+    if (strcmp(cmd, "search") == 0) return cmd_search(argc, argv);
+    if (strcmp(cmd, "list-experts") == 0) return cmd_list_experts(argc, argv);
+    if (strcmp(cmd, "list-albums") == 0) return cmd_list_albums(argc, argv);
+    if (strcmp(cmd, "album-arts") == 0) return cmd_album_arts(argc, argv);
+    if (strcmp(cmd, "comments") == 0) return cmd_comments(argc, argv);
+    if (strcmp(cmd, "forum-posts") == 0) return cmd_forum_posts(argc, argv);
+    if (strcmp(cmd, "user-info") == 0) return cmd_user_info(argc, argv);
     if (strcmp(cmd, "--version") == 0) { puts(SERVOOM_VERSION_STRING); return 0; }
     usage();
     return 2;

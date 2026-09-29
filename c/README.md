@@ -95,7 +95,29 @@ if (servoom_client_login(c) == SERVOOM_OK) {
     cJSON_Delete(info); free(path);
 }
 servoom_client_free(c);
+
+/* Most listings need no account at all (CLOUD_API.md, "Anonymous access"). */
+servoom_client *a = servoom_client_new_anonymous(NULL);
+cJSON *extra = cJSON_CreateObject();
+cJSON_AddNumberToObject(extra, "FileSort", SERVOOM_SORT_POPULAR);
+cJSON_AddNumberToObject(extra, "FileSize", SERVOOM_SIZE_64 | SERVOOM_SIZE_128);
+servoom_client_list_category(a, SERVOOM_CAT_ANIMAL, 90, extra, on_item, userdata);
+servoom_client_list_experts(a, 30, on_item, userdata);      /* each with 5 sample artworks */
+servoom_client_list_forum_posts(a, SERVOOM_REGION_INTERNATIONAL, -1, 1, 50, on_item, userdata);
+cJSON *albums = NULL;
+servoom_client_collect(a, SERVOOM_EP_ALBUMS, NULL, 0, &albums); /* generic call over the table */
+cJSON_Delete(extra); cJSON_Delete(albums);
+servoom_client_free(a);
 ```
+
+The client mirrors `servoom.client.DivoomClient` one function per Python method (gallery
+listings, comments, users, medals, playlists, albums, the forum feed, the notification
+inbox), all read-only, on top of an endpoint table (`servoom_endpoint_get`) and two generic
+calls, `servoom_client_lookup` and `servoom_client_list`. `servoom_client_filters` builds
+the filter block the gallery listings take; the constants (`servoom_gallery_sort`,
+`servoom_gallery_size`, `servoom_gallery_category`, ...) are the ones from
+`servoom.const`. Listings advance by the number of items each page returned, because the
+server caps a page at 30 or 100 items and silently truncates larger windows.
 
 Decoded frames are row-major 24-bit RGB, frame-major, exactly what the Python
 `PixelBean.frames_data` holds. Besides decoding, the library can write an animation as an
@@ -179,11 +201,21 @@ servoom md5 TEXT                           MD5 hex (to produce SERVOOM_MD5_PASSW
 servoom gallery-info GALLERY_ID            GalleryInfo JSON                  (credentials)
 servoom download GALLERY_ID [-o DIR]       artwork + its layer file          (credentials)
 servoom download-user USER_ID [-o DIR] [--limit N]                           (credentials)
-servoom list-category CATEGORY [--limit N] [--size MASK] [--type T]          (credentials)
+servoom list-category CATEGORY [--limit N] [--size MASK] [--type T] [--sort 0|1]
+servoom list-user USER_ID [--limit N]      a user's uploads
+servoom search QUERY [--limit N]           gallery search
+servoom list-experts [--limit N]           ranked artists, one JSON record per line
+servoom list-albums [--limit N]            curated albums
+servoom album-arts ALBUM_ID [--limit N]
+servoom comments GALLERY_ID [--limit N]    threaded comments, one JSON record per line
+servoom forum-posts [--limit N] [--region 1|86] [--tag T]
+servoom user-info USER_ID                  profile JSON
 ```
 
 Credentials: `SERVOOM_EMAIL` plus `SERVOOM_MD5_PASSWORD` or `SERVOOM_PASSWORD`, as in the
-Python CLI. Never commit them.
+Python CLI. Never commit them. Without credentials the cloud commands run anonymously,
+which the listings above allow; `gallery-info`, `download` and `download-user` need a
+token (`CLOUD_API.md` lists which endpoints answer anonymously).
 
 ## Testing
 
@@ -202,9 +234,11 @@ Python CLI. Never commit them.
   their composite). It also decodes truncated and bit-flipped copies of every file, which
   must never crash. `SERVOOM_NO_MUTATE=1` skips that (slow) pass. Skipped (exit 77) when no corpus is present;
   the corpus is not published (see `../corpus/README.md`).
-* **test_live** — logs in to the Divoom cloud, lists the account's own uploads and a public
-  category feed, then downloads and decodes the first artwork of that feed. Skipped unless
-  `SERVOOM_EMAIL`/`SERVOOM_PASSWORD` are set.
+* **test_live** — first anonymously (page-cap handling across a 70-item window, experts,
+  profiles, medals, search, albums, forum posts, and a token-only call that must fail),
+  then logged in: the account's own uploads, a public category feed, gallery info, a
+  download that is decoded, and one call to every forum, tag, discovery, playlist and inbox
+  function. Skipped unless `SERVOOM_EMAIL`/`SERVOOM_PASSWORD` are set.
 
 ## Dependencies and licenses
 
