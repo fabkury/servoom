@@ -2,6 +2,18 @@
 
 Read the Divoom cloud and decode its pixel art.
 
+## No programming needed
+
+> **[servoom.pages.dev](https://servoom.pages.dev/)**, the web app: log in with your Divoom
+> account, browse the gallery by category or by user, and save any artwork as WebP, GIF or
+> the original file, straight from the browser.
+>
+> **[Pixoo64-Advanced-Tools](https://github.com/tidyhf/Pixoo64-Advanced-Tools)** by tidyhf,
+> a separate desktop project for the Pixoo 64: browse the cloud library with its likes and
+> comments, and much more, from a Windows application.
+
+Everything below is for developers.
+
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](python/)
 [![C99](https://img.shields.io/badge/C-C99-blue.svg)](c/)
@@ -75,9 +87,8 @@ Reference documents, all reverse-engineered and verified live:
 
 ## Other ways in
 
-- **Browser:** [servoom.pages.dev](https://servoom.pages.dev/) browses categories and users and exports WebP, GIF or the raw file. It runs the same decoder as the Python library.
 - **C:** `c/` builds a static library and a `servoom` executable with the same commands; see [`c/README.md`](c/README.md).
-- **Desktop:** [Pixoo64-Advanced-Tools](https://github.com/tidyhf/Pixoo64-Advanced-Tools) by tidyhf is a third-party desktop browser for comments and likes.
+- **Browser:** the web app in `docs/` runs the same decoder as the Python library via Pyodide; see [`docs/README.md`](docs/README.md) to work on it locally.
 
 ## Contributing
 
