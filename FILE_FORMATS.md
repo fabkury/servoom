@@ -21,6 +21,8 @@ wrong.
 | 42 (0x2A) | **both**, in roughly equal numbers | 256x256; every still at this size is a 1-frame format-42 file. |
 | 43 (0x2B) | **animation only** (in the wild) | 256x256, never fewer than 20 frames in 98 samples, only ever listed as an animation. |
 | 12 (0x0C) | scrolling banner (neither) | 16x16 device content: four 16x16 tiles forming a 64x16 strip the device scrolls; decoded as a 64-frame marquee. |
+| 22 (0x16) | **still only** (Planet lamp) | 28 RGB triples for the 28-LED Divoom Planet, plus a layout byte; 87 bytes every time. Not an image; not decoded by servoom. |
+| 23 (0x17) | **animation only** (Planet lamp) | frames of 28 RGB triples with a frame count and speed; 8 and 65 frames seen. Not decoded by servoom. |
 
 "Still" here means the decoded container holds exactly one frame. Only two multi-frame
 files in the survey had all their frames identical (one format 9, one format 42), so the
@@ -44,6 +46,7 @@ field. The values that exist in the feeds depend on the canvas size:
 | 2 | multi-picture | 32, 64, 128, 256 | 17 (32/64px), 26 (64/128px), 42 (256px) |
 | 3 | multi-animation | 16 (rare), 32, 64, 128, 256 | 18 (16/32px), 26 (64/128px), 31 (128px), 41 (256px), 42 (256px), 43 (256px) |
 | 8 | banner (not exposed by the gallery filters) | 16x16 | 12 |
+| 9 | Planet lamp (`Classify 19`, reported with `FileSize 8`; not selectable by the filters) | 28 LEDs | 22 (still), 23 (animation) |
 
 "Multi" is Divoom's word for the tiled canvases larger than a single 16x16 panel, not for
 multiple frames. The 16x16 `FileType=3` files are format 18 strips of several 16x16
@@ -153,6 +156,24 @@ one pixel per frame, wrapping around, each frame lasting `speed` ms. The flat st
 reachable (`metadata['banner_strip']` in Python, `servoom_pixel_bean_banner_strip()` in
 C, shown under the preview in the web tool). The scroll direction, step and wrap-around
 are an interpretation of the content, not verified on a device.
+
+### Formats 22 and 23: the Planet lamp
+
+The **Planet** category (`Classify 19`, see `CLOUD_API.md`) holds artworks for the Divoom
+Planet, a lamp with 28 RGB LEDs rather than a pixel panel. Its records are the only ones
+with `FileType 9` and `FileSize 8`, and their files use two containers of their own,
+confirmed from the app's serializer and from twelve downloads on 2026-09-29:
+
+* format 22 (0x16), a still: `[0x16][0x1C][layout]` + 28 x RGB = 87 bytes, always.
+  `0x1C` is the LED count (28). `layout` is the type the app's Planet editor lets the
+  user pick for single-frame designs (0 = plain colour, 1..16 = preset arrangements shown
+  as icons); values 0, 4, 6, 9 and 13 were seen.
+* format 23 (0x17), an animation: `[0x17][0x1C][frames][speed BE16]` + `frames` x 84
+  bytes of RGB. 677-byte files are 8 frames, 5465-byte files 65 frames.
+
+No AES, no compression, no palette. servoom does not decode them: there is no square
+image to produce, and the LED order around the lamp is not established. The web tool and
+the `decode` CLI report them as unsupported.
 
 ## Reproducing
 

@@ -12,7 +12,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from . import csv_export
 from .config import DEFAULT_SETTINGS, Settings
-from .const import ApiEndpoint, ForumRegion, Server
+from .const import ANONYMOUS_ENDPOINTS, ApiEndpoint, ForumRegion, Server
 from .credentials import load_credentials
 from .http import DivoomSession, paginate
 from .logging import get_logger
@@ -32,10 +32,18 @@ class DivoomClient:
         md5_password: Optional[str] = None,
         password: Optional[str] = None,
         settings: Settings = DEFAULT_SETTINGS,
+        anonymous: bool = False,
     ):
-        creds = load_credentials(email, md5_password, password)
-        self._email = creds.email
-        self._md5_password = creds.md5_password
+        """``anonymous=True`` skips credentials and sends no ``Token``/``UserId``; the
+        endpoints that answer that way are listed in CLOUD_API.md (and in
+        ``servoom.const.ANONYMOUS_ENDPOINTS``); the others are logged as warnings."""
+        self.anonymous = anonymous
+        if anonymous:
+            self._email = self._md5_password = None
+        else:
+            creds = load_credentials(email, md5_password, password)
+            self._email = creds.email
+            self._md5_password = creds.md5_password
         self._settings = settings
         self._session = DivoomSession(settings)
         self.token: Optional[str] = None
@@ -43,7 +51,10 @@ class DivoomClient:
 
     # -- auth ---------------------------------------------------------------
     def login(self) -> bool:
-        """Authenticate; return True on success."""
+        """Authenticate; return True on success (always False for an anonymous client)."""
+        if self.anonymous:
+            log.error("Cannot login: client was created with anonymous=True")
+            return False
         try:
             resp = self._session.post_json(
                 ApiEndpoint.USER_LOGIN.value,
@@ -60,7 +71,12 @@ class DivoomClient:
     def is_logged_in(self) -> bool:
         return self.token is not None and self.user_id is not None
 
-    def _auth(self) -> Dict:
+    def _auth(self, endpoint: Optional[ApiEndpoint] = None) -> Dict:
+        if self.anonymous:
+            if endpoint is not None and endpoint not in ANONYMOUS_ENDPOINTS:
+                log.warning("%s is not known to work anonymously (see CLOUD_API.md)",
+                            endpoint.name)
+            return {}
         if not self.is_logged_in():
             raise ValueError("Not logged in! Call login() first.")
         return {"Token": self.token, "UserId": self.user_id}
@@ -83,7 +99,7 @@ class DivoomClient:
         items = list(paginate(
             self._session.post_json,
             endpoint.value,
-            {**self._auth(), **payload},
+            {**self._auth(endpoint), **payload},
             batch_size=self._settings.batch_size,
             list_keys=list_keys,
             keep=keep_fn,
@@ -97,7 +113,8 @@ class DivoomClient:
     def fetch_artwork_info(self, gallery_id: int) -> Optional[Dict]:
         """Fetch artwork metadata by gallery ID (or None on error)."""
         resp = self._session.post_json(
-            ApiEndpoint.GET_GALLERY_INFO.value, {**self._auth(), "GalleryId": gallery_id}
+            ApiEndpoint.GET_GALLERY_INFO.value,
+            {**self._auth(ApiEndpoint.GET_GALLERY_INFO), "GalleryId": gallery_id}
         )
         if resp.get("ReturnCode", 0) != 0:
             log.error("fetch_artwork_info failed: ReturnCode %s", resp.get("ReturnCode"))
@@ -183,7 +200,11 @@ class DivoomClient:
 
     def fetch_someone_arts(self, target_user_id: int, limit: Optional[int] = None,
                            **extra) -> List[Dict]:
-        """List uploads by ``target_user_id``."""
+        """List uploads by ``target_user_id`` (``ShowAllFlag`` only matters to moderators).
+
+        Filters go in ``extra``: ``FileSort`` (:class:`~servoom.const.GallerySort`),
+        ``FileSize`` (:class:`~servoom.const.GallerySize`), ``FileType``, ``Classify``.
+        """
         return self._list(ApiEndpoint.GET_SOMEONE_LIST, {
             "Version": 99, "ShowAllFlag": 1, "SomeOneUserId": target_user_id,
             "FileSize": self._settings.file_size_filter, "RefreshIndex": 0, "FileSort": 0,
@@ -198,15 +219,25 @@ class DivoomClient:
             "FileType": 5, "FileSort": 0, "Version": 12, "RefreshIndex": 0, **extra,
         }, limit=limit, list_keys=("FileList", "CategoryFileList"))
 
+    def _filters(self, **extra) -> Dict:
+        """The filter block every gallery listing takes (CLOUD_API.md, "Gallery filters")."""
+        return {"Classify": 0, "FileSize": self._settings.file_size_filter, "FileType": 5,
+                "FileSort": 0, "Version": 19, "RefreshIndex": 0, **extra}
+
     def fetch_tag_gallery(self, tag_name: str, limit: Optional[int] = None,
                           **extra) -> List[Dict]:
-        """List artworks under a tag."""
-        return self._list(ApiEndpoint.GET_TAG_GALLERY, {"TagName": tag_name, **extra},
-                          limit=limit)
+        """List artworks under a tag (token required)."""
+        return self._list(ApiEndpoint.GET_TAG_GALLERY,
+                          self._filters(TagName=tag_name, Mode=0, **extra), limit=limit)
 
     def search_gallery(self, query: str, limit: Optional[int] = None, **extra) -> List[Dict]:
-        """Search gallery artworks by keyword."""
-        return self._list(ApiEndpoint.SEARCH_GALLERY, {"Keywords": query, **extra},
+        """Search gallery artworks by keyword.
+
+        The filter block is always sent: without it the server applies a narrow default
+        and answers with a handful of items.
+        """
+        return self._list(ApiEndpoint.SEARCH_GALLERY,
+                          self._filters(Keywords=query, KeywordsEn=query, **extra),
                           limit=limit)
 
     def fetch_likes_for_art(self, gallery_id: int, limit: Optional[int] = None) -> List[Dict]:
@@ -311,7 +342,7 @@ class DivoomClient:
 
     # -- single-shot lookups ------------------------------------------------
     def _lookup(self, endpoint: ApiEndpoint, payload: Dict) -> Optional[Dict]:
-        resp = self._session.post_json(endpoint.value, {**self._auth(), **payload})
+        resp = self._session.post_json(endpoint.value, {**self._auth(endpoint), **payload})
         if resp.get("ReturnCode", 0) != 0:
             log.error("%s failed: ReturnCode %s", endpoint.name, resp.get("ReturnCode"))
             return None
@@ -331,10 +362,166 @@ class DivoomClient:
         resp = self._lookup(ApiEndpoint.SEARCH_USER, {"Keywords": query, **extra})
         return (resp or {}).get("UserList", [])
 
-    def search_tag(self, query: str, **extra) -> List[Dict]:
-        """Search for tags by keyword."""
-        resp = self._lookup(ApiEndpoint.SEARCH_TAG, {"Keywords": query, **extra})
+    def search_tag(self, query: str, limit: Optional[int] = None, **extra) -> List[Dict]:
+        """Search tags by keyword (fuzzy); each hit carries counts and 5 sample artworks.
+
+        ``TagKey=...`` in ``extra`` switches to a prefix match (it takes precedence over
+        ``Keywords`` on the server).
+        """
+        return self._list(ApiEndpoint.SEARCH_TAG, {
+            "Keywords": query, "FileSize": self._settings.file_size_filter, "FileSort": 0,
+            **extra,
+        }, limit=limit, list_keys=("TagList",))
+
+    # -- current account ------------------------------------------------------
+    def fetch_my_info(self) -> Optional[Dict]:
+        """Full profile of the logged-in account (email, region, level, flags)."""
+        return self._lookup(ApiEndpoint.GET_USER_ALL_INFO, {})
+
+    def fetch_my_likes(self, limit: Optional[int] = None, **extra) -> List[Dict]:
+        """Artworks the current user liked."""
+        return self._list(ApiEndpoint.GET_MY_LIKES, self._filters(**extra), limit=limit)
+
+    def fetch_my_followers(self, limit: Optional[int] = None) -> List[Dict]:
+        """Users following the current account (the server only serves one's own list)."""
+        return self._list(ApiEndpoint.GET_MY_FOLLOWERS, {}, limit=limit,
+                          list_keys=("FollowList",))
+
+    def fetch_my_following(self, limit: Optional[int] = None) -> List[Dict]:
+        """Users the current account follows (own list only)."""
+        return self._list(ApiEndpoint.GET_MY_FOLLOWING, {}, limit=limit,
+                          list_keys=("FollowList",))
+
+    def fetch_blacklist(self, limit: Optional[int] = None) -> List[Dict]:
+        """Users blocked by the current account, as ``{"UserId": ...}`` records."""
+        return self._list(ApiEndpoint.GET_BLACKLIST, {}, limit=limit,
+                          list_keys=("BlackList",))
+
+    def fetch_conversations(self) -> List[Dict]:
+        """Private chats of the current user: ``{TargetUserId, Message, SendTime}``."""
+        resp = self._lookup(ApiEndpoint.MESSAGE_GET_CONVERSATIONS, {})
+        return (resp or {}).get("ConversationList", [])
+
+    def fetch_letters(self, limit: Optional[int] = None) -> List[Dict]:
+        """System letters addressed to the current user."""
+        return self._list(ApiEndpoint.MESSAGE_GET_LETTERS, {}, limit=limit,
+                          list_keys=("LetterList",))
+
+    # -- users (CLOUD_API.md) ---------------------------------------------------
+    def fetch_user_score(self, target_user_id: int) -> Optional[Dict]:
+        """Score breakdown: ``Score``, ``PixelCnt``, ``AniCnt``, ``RecommendCnt``, ``TopCnt``."""
+        return self._lookup(ApiEndpoint.GET_USER_SCORE, {"TargetUserId": target_user_id})
+
+    def fetch_user_medals(self, target_user_id: int, language: str = "en") -> List[Dict]:
+        """Every medal the app knows, with ``IsValid``/``ValidTime`` for this user."""
+        resp = self._lookup(ApiEndpoint.GET_USER_MEDALS,
+                            {"TargetUserId": target_user_id, "Langue": language})
+        return (resp or {}).get("MedalList", [])
+
+    def fetch_experts(self, limit: Optional[int] = None, language: str = "en") -> List[Dict]:
+        """Ranked artists; each record carries counters and 5 sample artworks in ``FileList``."""
+        return self._list(ApiEndpoint.GET_EXPERTS, {
+            "Language": language, "FileSize": self._settings.file_size_filter,
+            "FileType": 5, "Version": 19, "RefreshIndex": 0,
+        }, limit=limit, list_keys=("ExpertList",))
+
+    def fetch_hot_experts(self, **extra) -> List[Dict]:
+        """The ten artists featured on the Gallery tab (``ExpertUserId``, ``NickName``, ...)."""
+        resp = self._lookup(ApiEndpoint.GET_HOT_EXPERTS, extra)
+        return (resp or {}).get("ExpertList", [])
+
+    def fetch_expert_gallery(self, limit: Optional[int] = None) -> List[Dict]:
+        """Artworks by ambassador-level artists (a feed the app no longer shows)."""
+        return self._list(ApiEndpoint.GET_EXPERT_GALLERY, {}, limit=limit)
+
+    def fetch_tag_users(self, tag_name: str, limit: Optional[int] = None,
+                        language: str = "en") -> List[Dict]:
+        """Users who post under a tag."""
+        return self._list(ApiEndpoint.GET_TAG_USERS,
+                          {"TagName": tag_name, "Language": language},
+                          limit=limit, list_keys=("UserList",))
+
+    # -- tags and events --------------------------------------------------------
+    def suggest_tags(self, prefix: str) -> List[Dict]:
+        """Tags starting with ``prefix`` (up to 30), as ``{TagName, GalleryCnt}``."""
+        resp = self._lookup(ApiEndpoint.SUGGEST_TAG, {"TagKey": prefix})
         return (resp or {}).get("TagList", [])
+
+    def fetch_hot_tags(self, language: str = "en") -> List[Dict]:
+        """The five trending tags shown in the app's search box."""
+        resp = self._lookup(ApiEndpoint.GET_HOT_TAGS, {"Language": language})
+        return (resp or {}).get("TagList", [])
+
+    def fetch_match_info(self) -> Optional[str]:
+        """Name of the running contest (the ``MatchKey`` the Pixel Match category is built on)."""
+        resp = self._lookup(ApiEndpoint.GET_MATCH_INFO, {})
+        return (resp or {}).get("MatchKey")
+
+    # -- discovery: albums and the Discover tab ---------------------------------
+    def fetch_albums(self, limit: Optional[int] = None, **extra) -> List[Dict]:
+        """Curated albums, each with counters and 5 sample artworks in ``GalleryList``."""
+        return self._list(ApiEndpoint.GET_ALBUMS, {
+            "FileSize": self._settings.file_size_filter, "FileSort": 0, **extra,
+        }, limit=limit, list_keys=("AlbumList",))
+
+    def fetch_album_info(self, album_id: int, language: str = "en",
+                         country: str = "US") -> Optional[Dict]:
+        """Album counters plus the ``ForumId`` that hosts its comment thread."""
+        return self._lookup(ApiEndpoint.GET_ALBUM_INFO, {
+            "AlbumId": album_id, "Langue": language, "CountryISOCode": country})
+
+    def fetch_album_arts(self, album_id: int, limit: Optional[int] = None,
+                         **extra) -> List[Dict]:
+        """Artworks in an album (same filters as the other listings)."""
+        return self._list(ApiEndpoint.GET_ALBUM_ARTS,
+                          self._filters(AlbumId=album_id, **extra), limit=limit)
+
+    def fetch_discover_themes(self) -> List[Dict]:
+        """The Discover carousel: ``{ForumId, ImageId, Title}`` per contest theme."""
+        resp = self._lookup(ApiEndpoint.GET_DISCOVER_THEMES, {})
+        return (resp or {}).get("ThemeList", [])
+
+    def fetch_discover_top_new(self) -> Optional[Dict]:
+        """The Discover banner: ``NewList`` of two featured posts, ``NewImageId``, ``TextColor``."""
+        return self._lookup(ApiEndpoint.GET_DISCOVER_TOP_NEW, {})
+
+    # -- playlists --------------------------------------------------------------
+    def fetch_user_playlists(self, target_user_id: int, limit: Optional[int] = None,
+                             language: str = "en") -> List[Dict]:
+        """Public playlists of a user: ``{PlayId, Name, Describe, CoverFileId, Count, ...}``."""
+        return self._list(ApiEndpoint.GET_USER_PLAYLISTS,
+                          {"TargetUserId": target_user_id, "Language": language},
+                          limit=limit, list_keys=("PlayList",))
+
+    def fetch_my_playlists(self, limit: Optional[int] = None) -> List[Dict]:
+        """Playlists of the current account."""
+        return self._list(ApiEndpoint.GET_MY_PLAYLISTS, {}, limit=limit,
+                          list_keys=("PlayList",))
+
+    def fetch_playlist_arts(self, target_user_id: Optional[int], play_id: int,
+                            limit: Optional[int] = None, **extra) -> List[Dict]:
+        """Artworks in a playlist (token required); ``target_user_id=None`` reads one of
+        the current user's."""
+        payload = self._filters(PlayId=play_id, **extra)
+        if target_user_id is None:
+            return self._list(ApiEndpoint.GET_MY_PLAYLIST_ARTS, payload, limit=limit)
+        return self._list(ApiEndpoint.GET_USER_PLAYLIST_ARTS,
+                          {"TargetUserId": target_user_id, **payload}, limit=limit)
+
+    # -- server-side legacy render ----------------------------------------------
+    def fetch_legacy_preview(self, gallery_id: Optional[int] = None,
+                             file_id: Optional[str] = None) -> Optional[Dict]:
+        """Ask the server to decode an artwork into 16x16 RGB frames (no token needed).
+
+        Only the legacy containers are understood (16x16 formats 8/9, and the old 64x64
+        animations, which come back downsampled to 16x16); anything else answers with
+        ``PicCount 1`` and an empty ``FileData``. Returns ``{FileData: [r, g, b, ...],
+        PicCount, Speed, xScreenCount, yScreenCount, FileName}`` or None.
+        """
+        if gallery_id is None and file_id is None:
+            raise ValueError("gallery_id or file_id is required")
+        payload = {"GalleryId": gallery_id} if gallery_id is not None else {"FileId": file_id}
+        return self._lookup(ApiEndpoint.GET_LEGACY_PREVIEW, payload)
 
     # -- bean/download convenience -----------------------------------------
     def fetch_my_arts_as_beans(self, **kwargs) -> List[PixelBean]:

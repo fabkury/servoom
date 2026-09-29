@@ -157,6 +157,9 @@ calls; every `/MessageGroup/Get*` path guessed for history returned code 10.
 
 ## Related
 
+The gallery, user, tag, discovery and playlist endpoints are mapped in
+[`CLOUD_API.md`](CLOUD_API.md), together with which of them answer without a token.
+
 * `/Discover/GetTopNew`: `NewList` of two featured `{ForumId, Title}` for the Discover
   banner plus `NewImageId`, `TextColor`. Returned Chinese-feed ids regardless of `RegionId`.
 * `/GetUserAllInfo`: full profile of the current user, including `RegionId` and

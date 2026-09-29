@@ -37,7 +37,8 @@ on `npm run dev`/`npm run build`, and CI fails if the committed copies drift.
 
 ## Features
 - Authenticate against the Divoom cloud API.
-- Fetch uploads, likes, tag metadata, and feeds via `DivoomClient`.
+- Fetch uploads, likes, tag metadata, and feeds via `DivoomClient`; most listings work **without an account** (`DivoomClient(anonymous=True)`).
+- Read the rest of the community side: category feeds with the app's filters, artist rankings, albums, playlists, medals, tag suggestions and trending tags, plus the current account's likes, followers and inbox; endpoint map (from the app's HTTP layer, verified live) in [`CLOUD_API.md`](CLOUD_API.md).
 - Read the app's **Forum** (official contest/news/interview posts and their threaded comments), gallery comments and the notification inbox via `DivoomClient`; endpoint map in [`FORUM_API.md`](FORUM_API.md).
 - Download animation binaries and convert them to WebP/GIF or PIL images through `PixelBeanDecoder`, covering Divoom formats 8, 9, 12, 17, 18, 26, 31, 41, 42, and 43 (see [`FILE_FORMATS.md`](FILE_FORMATS.md) for which containers hold stills, animations, or both, with the evidence).
 - Decode Divoom **layer files** (format 0x27) into their component layers via `LayerFileDecoder`, and export them to an animated WebP or a **layered PSD** (openable in GIMP/Photoshop with per-layer opacity, visibility and per-frame groups).

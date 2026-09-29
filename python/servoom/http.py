@@ -93,6 +93,10 @@ def paginate(
         on_page: optional ``(start, running_total)`` progress callback.
 
     Stops on: an error ``ReturnCode``, a page with no items, a non-JSON body, or ``limit``.
+
+    The next window starts right after the last item *received*, not at ``EndNum + 1``:
+    every endpoint caps a page (30 or 100 items, see CLOUD_API.md) and silently truncates
+    a larger window, so advancing by ``batch_size`` would skip the items past the cap.
     """
     keep = keep or (lambda _item: True)
     start = 1
@@ -119,7 +123,7 @@ def paginate(
                 return
         if on_page:
             on_page(start, collected)
-        start += batch_size
+        start += len(items)  # not batch_size: the server may have truncated the window
 
 
 def collect(items: Iterable[Dict]) -> List[Dict]:

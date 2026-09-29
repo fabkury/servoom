@@ -23,40 +23,11 @@ from enum import Enum
 # ---------------------------------------------------------------------------
 # Gallery enumerations (observed in the Aurabox/Divoom app)
 # ---------------------------------------------------------------------------
-class GalleryCategory(int, Enum):
-    """``Classify`` values seen on gallery listings. Commented entries were observed but
-    not confirmed / not useful and are kept for the record."""
+# ``Classify`` (category), ``FileSort`` and ``FileSize`` are live filters now; the app's
+# own table (with the hidden ids that still filter) is in CLOUD_API.md.
+from .const import GalleryCategory, GalleryFileType, GallerySize, GallerySort  # noqa: E402,F401
 
-    NEW = 0
-    DEFAULT = 1
-    # LED_TEXT = 2
-    CHARACTER = 3
-    EMOJI = 4
-    DAILY = 5
-    NATURE = 6
-    SYMBOL = 7
-    PATTERN = 8
-    CREATIVE = 9
-    PHOTO = 12
-    TOP = 14
-    GADGET = 15
-    BUSINESS = 16
-    FESTIVAL = 17
-    RECOMMEND = 18
-    # PLANET = 19
-    FOLLOW = 20
-    # REVIEW_PHOTOS = 21
-    # REVIEW_STOLEN_PHOTOS = 22
-    # FILL_GAME = 29
-    PIXEL_MATCH = 30  # event-dependent
-    PLANT = 31
-    ANIMAL = 32
-    PERSON = 33
-    EMOJI_2 = 34
-    FOOD = 35
-    # OTHERS = 36
-    # REPORT_PHOTO = 254
-    # CREATION_ALBUM = 255
+GallerySorting = GallerySort  # historical name
 
 
 class GalleryType(int, Enum):
@@ -72,12 +43,10 @@ class GalleryType(int, Enum):
     DESIGN_CHANNEL_DEVICE = 104
 
 
-class GallerySorting(int, Enum):
-    NEW_UPLOAD = 0
-    MOST_LIKED = 1
-
-
 class GalleryDimension(int, Enum):
+    """Superseded by :class:`servoom.const.GallerySize` (same bits). Kept for the
+    combined masks; bit 8 is what Planet-lamp records report as ``FileSize``."""
+
     W16H16 = 1
     W32H32 = 2
     W64H64 = 4
@@ -156,12 +125,14 @@ class GalleryInfo(BaseDictInfo):
 # Status legend: "working" confirmed to return data; "params" reachable but payload not
 # figured out; "unknown"/"failed" as noted. Base host is app.divoom-gz.com. These are
 # notes; the live client only wires up the endpoints in ``servoom.const.ApiEndpoint``.
+# Superseded on 2026-09-29 by CLOUD_API.md, which maps the whole read side from the app's
+# HTTP layer; entries below marked "promoted" now have DivoomClient methods.
 EXPERIMENTAL_ENDPOINTS = {
-    "GetMyUploadListV3": "working",
-    "Cloud/GetLikeUserList": "working",
-    "GetSomeoneInfoV2": "working",
-    "GetSomeoneListV2": "working",
-    "SearchUser": "working",
+    "GetMyUploadListV3": "promoted: DivoomClient.fetch_my_arts",
+    "Cloud/GetLikeUserList": "promoted: DivoomClient.fetch_likes_for_art (token required)",
+    "GetSomeoneInfoV2": "promoted: DivoomClient.fetch_someone_info (works anonymously)",
+    "GetSomeoneListV3": "promoted: DivoomClient.fetch_someone_arts (V2 answers identically)",
+    "SearchUser": "broken: ReturnCode 1 for every query (2026-09-24 and 2026-09-29)",
     "Comment/GetCommentListV3": "promoted: DivoomClient.fetch_comments_for_art (nested replies)",
     "GetCommentListV2": "working: flat gallery comments with ParentCommentId; V3 is nicer",
     "Forum/GetTag": "promoted: DivoomClient.fetch_forum_tags",
@@ -177,22 +148,30 @@ EXPERIMENTAL_ENDPOINTS = {
     "Message/GetFansList": "promoted: DivoomClient.fetch_follower_notifications",
     "MessageGroup/GetGroupList": "promoted: DivoomClient.fetch_chat_groups (directory only)",
     "MessageGroup/Get{MessageList,List,History,GroupInfo,...}": "failed: ReturnCode 10, no such command",
-    "Discover/GetTopNew": "working: two featured ForumIds for the Discover banner",
-    "GetUserAllInfo": "working: full profile of the current user incl. RegionId",
-    "GetNewLetterListV2": "working: LetterList (empty on a fresh account)",
+    "Discover/GetTopNew": "promoted: DivoomClient.fetch_discover_top_new",
+    "GetUserAllInfo": "promoted: DivoomClient.fetch_my_info",
+    "GetNewLetterListV2": "promoted: DivoomClient.fetch_letters",
     "GetAnnouncement": "failed: ReturnCode 1",
     "Manager/GetReportGallery": "working",
-    "Cloud/GalleryInfo": "working",
-    "Cloud/GetMatchInfo": 'working; returns current event name (e.g. "Monster2026")',
-    "Tag/GetTagInfo": "params: reachable, payload TBD",
-    "Tag/GetTagGalleryListV3": "params: reachable, payload TBD",
-    "Tag/SearchTagMoreV2": "params: reachable, payload TBD",
-    "SearchGalleryV3": "params: reachable, payload TBD",
-    "GetCategoryFileListV2": "params: reachable, payload TBD",
-    "GetFollowListV2": "empty: returned 0 / empty list",
+    "Cloud/GalleryInfo": "promoted: DivoomClient.fetch_artwork_info (token required)",
+    "Cloud/GetMatchInfo": "promoted: DivoomClient.fetch_match_info",
+    "Tag/GetTagInfo": "promoted: DivoomClient.fetch_tag_info; payload {TagName}",
+    "Tag/GetTagGalleryListV3": "promoted: DivoomClient.fetch_tag_gallery; {TagName, Mode} + filters",
+    "Tag/SearchTagMoreV2": "promoted: DivoomClient.search_tag; Keywords (fuzzy) or TagKey (prefix)",
+    "SearchGalleryV3": "promoted: DivoomClient.search_gallery; {Keywords, KeywordsEn} + filters",
+    "GetCategoryFileListV2": "promoted: DivoomClient.fetch_category_files; page cap 30, see CLOUD_API.md",
+    "GetFollowListV2": "promoted: DivoomClient.fetch_my_following (own account only; empty on the test account)",
     "Manager/GetReportCommentList": "failed: ReturnCode 1",
     "Manager/GetReportMessageGroupList": "failed: ReturnCode 1",
     "Manager/ShowGallery": "failed: GalleryId param causes ReturnCode 1",
+    # 2026-09-29, from the app's command table (CLOUD_API.md has the details):
+    "Channel/Store* (clock store), Sys/*, Photo/*, Alarm/*, ...": "ReturnCode 3 without a DeviceId bound to the account",
+    "Cloud/GetFileData": "promoted: DivoomClient.fetch_legacy_preview (server-side 16x16 render, no token)",
+    "Cloud/GetCategoryDataList, Cloud/GetSomeoneDataList": "web-only legacy 16x16 gallery with inline pixels; not wired",
+    "User/GetPersonalInfo": "failed: server answers a PHP notice instead of JSON",
+    "AI/GetPicListV2": "failed: server answers an SQL error",
+    "GetStartLogo": "failed: ReturnCode 1",
+    "GetCategoryFileList (V1)": "failed: ReturnCode 3 whatever is sent",
 }
 
 # Extra payload fields observed on Manager/GetReportGallery-style calls, kept for reference
