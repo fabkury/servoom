@@ -1,197 +1,98 @@
 # servoom
 
-### Web user interface at: https://servoom.pages.dev/
+Read the Divoom cloud and decode its pixel art.
 
-### Desktop user interface in https://github.com/tidyhf/Pixoo64-Advanced-Tools
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](python/)
+[![C99](https://img.shields.io/badge/C-C99-blue.svg)](c/)
+[![Web app](https://img.shields.io/badge/web%20app-servoom.pages.dev-brightgreen.svg)](https://servoom.pages.dev/)
+[![Docs sync](https://github.com/fabkury/servoom/actions/workflows/python-sync-check.yml/badge.svg)](https://github.com/fabkury/servoom/actions/workflows/python-sync-check.yml)
+[![Deploy](https://github.com/fabkury/servoom/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/fabkury/servoom/actions/workflows/deploy-pages.yml)
 
-Toolkit for exploring the Divoom Cloud:
- - fetch account data,
- - fetch arts, likes, comments, 
- - download Divoom animations and transcode them into lossless WebP or GIF files.
+Divoom's pixel-art devices (Pixoo, Ditoo, Times Gate, ...) share a community gallery whose
+artworks are stored in undocumented binary containers and served by an undocumented API.
+servoom maps that API, read-only, and decodes every container seen in the wild into
+standard images. It ships as a Python library and CLI, a C99 library and CLI with
+byte-identical output, and a browser app.
 
-## Repository layout
+## What it does
 
-The repository hosts three independent "verticals" plus a shared reference corpus:
+- **Reads the cloud.** Gallery feeds with the app's own filters, search, user profiles,
+  artist rankings, albums, playlists, tags, likes, threaded comments, the official forum
+  and the notification inbox. Most of it works without an account.
+- **Decodes the files.** Formats 8, 9, 12, 17, 18, 26, 31, 41, 42 and 43 (16 to 256 px,
+  stills, animations, multi-panel strips, scrolling banners) to lossless WebP, GIF or raw
+  RGB, plus the layered "layer file" source of an artwork to a layered PSD.
+- **Documents what it found.** Endpoint maps and container layouts, verified against the
+  live service, so the next person does not have to reverse-engineer them again.
 
-| Directory  | What                                                                              |
-|------------|-----------------------------------------------------------------------------------|
-| `python/`  | the `servoom` Python library and CLI (cloud client + decoders), tests, layer tools |
-| `docs/`    | the browser app deployed at https://servoom.pages.dev/ (runs the Python decoders via Pyodide) |
-| `c/`       | the same library in C99: all decoders + cloud client, see [`c/README.md`](c/README.md) |
-| `corpus/`  | tooling for the shared reference corpus (local-only: the artworks belong to Divoom users and are not published), see [`corpus/README.md`](corpus/README.md) |
+Writing to the cloud (likes, comments, uploads) is deliberately out of scope.
 
-## Overview
+## Quick start
 
-`servoom` wraps the Divoom API so you can archive uploads, metadata, and turn undocumented "pixel bean" files into standard image formats such as GIF or lossless WebP.
-
-The project offers a CLI workflow, decoding utilities that understand the formats observed in the Divoom ecosystem, plus helpers for exporting metadata (likes, comments, others) to CSV.
-
-## Web app / GitHub Pages
-
-A browser-based companion lives in `docs/` and is continuously deployed to Cloudflare R2: https://servoom.pages.dev/. The site mirrors a subset of the Python tooling. Log in with your credentials, browse categories or users, decode previews, and export WebP/GIF/DAT bundles straight from the browser. To work on it locally, `cd docs && npm install && npm run dev`. Comments and likes are not available on the web interface. Use https://github.com/tidyhf/Pixoo64-Advanced-Tools for a desktop browser of comments and likes.
-
-The site runs the **same** decoder in the browser via Pyodide. `python/servoom/pixel_bean.py` and
-`python/servoom/pixel_bean_decoder.py` are the single source of truth; `docs/scripts/sync-python.mjs`
-copies them into `docs/src/python/` (committed, auto-generated). The copy runs automatically
-on `npm run dev`/`npm run build`, and CI fails if the committed copies drift.
-
-## Features
-- Authenticate against the Divoom cloud API.
-- Fetch uploads, likes, tag metadata, and feeds via `DivoomClient`; most listings work **without an account** (`DivoomClient(anonymous=True)`).
-- Read the rest of the community side: category feeds with the app's filters, artist rankings, albums, playlists, medals, tag suggestions and trending tags, plus the current account's likes, followers and inbox; endpoint map (from the app's HTTP layer, verified live) in [`CLOUD_API.md`](CLOUD_API.md).
-- Read the app's **Forum** (official contest/news/interview posts and their threaded comments), gallery comments and the notification inbox via `DivoomClient`; endpoint map in [`FORUM_API.md`](FORUM_API.md).
-- Download animation binaries and convert them to WebP/GIF or PIL images through `PixelBeanDecoder`, covering Divoom formats 8, 9, 12, 17, 18, 26, 31, 41, 42, and 43 (see [`FILE_FORMATS.md`](FILE_FORMATS.md) for which containers hold stills, animations, or both, with the evidence).
-- Decode Divoom **layer files** (format 0x27) into their component layers via `LayerFileDecoder`, and export them to an animated WebP or a **layered PSD** (openable in GIMP/Photoshop with per-layer opacity, visibility and per-frame groups).
-- A small CLI (`python -m servoom`) for decoding and downloading, and a `pytest` suite that regression-tests the decoders (synthetic files, plus a local reference corpus when present).
-
-## Requirements
-- Python 3.10 or newer (tested on CPython).
-- Packages: `requests`, `numpy`, `pillow`, `lzallright`, `pycryptodome`, `zstandard`.
-- Optional: `pytoshop` — only needed for exporting layer files to PSD (`LayerBean.save_to_psd`).
-
-## Installation
-
-Install the package dependencies (including the optional `pytoshop` for PSD export):
 ```powershell
 pip install -r python/requirements.txt
-```
-
-Or install them explicitly:
-```powershell
-pip install requests numpy pillow lzallright pycryptodome zstandard
-# optional, for PSD export of layer files:
-pip install pytoshop
-```
-
-## Configure Credentials
-
-Credentials are only needed for the cloud/download features (decoding local files needs
-none). Provide the email tied to your Divoom account and the **MD5 hash** of your password
-(never the plain password). Resolution order:
-
-1. environment variables `SERVOOM_EMAIL` / `SERVOOM_MD5_PASSWORD`, or
-2. a git-ignored `credentials.py`:
-
-```python
-# credentials.py
-CONFIG_EMAIL = "you@example.com"
-CONFIG_MD5_PASSWORD = "md5-hash-of-your-password"
-```
-
-Generate the MD5 hash using any online  tool, or locally using Python:
-
-```bash
-pip install hashlib
-
-python - <<'PY'
-import hashlib
-print(hashlib.md5("your-plain-text-password".encode()).hexdigest())
-PY
-```
-
-Keep your `credentials.py` out of the Internet.
-
-## How to use
-
-The CLI (`python -m servoom --help`, run from the `python/` directory) covers the common flows:
-
-```powershell
 cd python
-# Decode a local .dat (or a whole folder) to WebP (or GIF with -f gif)
-python -m servoom decode downloads/4130000_example.dat -o out
-python -m servoom decode downloads/ -o out
-
-# Decode a 0x27 layer file to WebP (+ layered PSD with --psd)
-python -m servoom decode-layer downloads/12345_layer.dat -o out --psd
-
-# Download + decode by gallery id, or every upload of a user (needs credentials)
-python -m servoom download GALLERY_ID -o downloads
-python -m servoom download-user USER_ID -o downloads
 ```
-
-Outputs land in `downloads/` (raw `.dat`) and `out/` (decoded `.webp`/`.gif`).
-
-### Minimal decoding example
-
-Decode a single `.dat` file into WebP from Python:
-
-```python
-from servoom.pixel_bean_decoder import PixelBeanDecoder
-
-bean = PixelBeanDecoder.decode_file("downloads/1234567_example.dat")
-bean.save_to_webp("out/example.webp")
-```
-
-### Forum feed (official posts and comments)
-
-The app's Forum tab is an article feed with threaded comments. It comes in two regional
-variants selected per request (see [`FORUM_API.md`](FORUM_API.md)):
 
 ```python
 from servoom import DivoomClient
-from servoom.const import ForumRegion
+from servoom.const import GalleryCategory, GallerySort
 
-client = DivoomClient(); client.login()
-for post in client.fetch_forum_posts(limit=20):            # international feed, newest first
-    print(post["ForumId"], post["Title"], "comments:", post["CommentCnt"])
-thread = client.fetch_forum_comments(post["ForumId"])       # replies nest in CommentChildList
-chinese = client.fetch_forum_posts(region=ForumRegion.CHINA, tag=2)   # "Contest" tag only
+c = DivoomClient(anonymous=True)                       # no account needed for listings
+for art in c.fetch_category_files(GalleryCategory.ANIMAL, limit=30,
+                                  FileSort=GallerySort.POPULAR):
+    print(art["GalleryId"], art["FileName"], art["LikeCnt"])
+
+c = DivoomClient(); c.login()                          # downloads need credentials (python/README.md)
+bean, path = c.download_art_by_id(601799, "downloads")
 ```
-
-### Layer files (decode and export to PSD)
-
-Divoom "layer files" (referenced by `LayerFileId` in gallery metadata) are the editable,
-layered source for an artwork. Decode one and export it to a layered PSD for GIMP/Photoshop
-— each animation frame becomes a layer group, with per-layer opacity and visibility (the
-"hide" flag) preserved and black treated as transparent. Since black is the chroma key,
-every frame group also carries an opaque black background layer (`fNNN_bg`) at its bottom,
-so pixels left transparent in all layers render black exactly as the Divoom app shows them:
-
-```python
-from servoom.layer_file_decoder import LayerFileDecoder
-
-layer = LayerFileDecoder.decode_file("downloads/1234567_layer.dat")
-layer.save_to_psd("out/example.psd")   # needs: pip install pytoshop
-layer.save_to_webp("out/example.webp") # composited animation
-```
-
-Command-line tools and the full format write-up live in [`python/layer-tools/`](python/layer-tools/):
-`divoom_layer_decoder.py` (self-contained decoder), `layers_to_psd.py` (layer → PSD), and
-`LAYER_FILE_FORMAT.md` (the reverse-engineered 0x27 container spec).
-
-### Tests
-
-The `pytest` suite exercises every decoder with synthetic files and, when the local
-reference corpus is present (see `corpus/README.md`), re-checks every real artwork against
-the recorded baseline:
 
 ```powershell
-cd python
-python -m pytest tests
+python -m servoom decode downloads/601799_Blink.dat -o out     # -> out/601799_Blink.webp
+python -m servoom decode-layer downloads/1234_layer.dat --psd  # layered PSD for GIMP/Photoshop
 ```
 
-## Repository Guide
-- `python/servoom/client.py` – high-level API client (auth, fetch, search, download).
-- `python/servoom/http.py` – HTTP transport + the single pagination loop.
-- `python/servoom/pixel_bean_decoder.py` – decoders for each known `.dat` container (also the
-  canonical source for the web decoder — see below).
-- `python/servoom/layer_file_decoder.py` – the 0x27 layer-file decoder and `LayerBean`.
-- `python/servoom/cli.py` – the `python -m servoom` command-line interface.
-- `python/servoom/gallery_reference.py` – preserved reverse-engineering notes (gallery enums,
-  record mappers, experimental endpoints); not wired into live code.
-- [`FORUM_API.md`](FORUM_API.md) – request/response map of the forum, comment and notification endpoints.
-- `corpus/` – tooling for the local-only reference corpus shared by the Python and C test suites.
-- `c/` – the C library, CLI and tests (own README).
+The full walkthrough (credentials, CLI, API, tests) is in [`python/README.md`](python/README.md).
 
-## Troubleshooting
-- **`ImportError: No module named lzallright`** – install the `lzallright` package from PyPI (Windows wheels are available).
-- **`Format X unsupported`** – the decoder covers observed formats; contribute samples if you run into a new one.
-- **Rate limits or empty payloads** – the Divoom API occasionally throttles; run the CLI with `-v` to inspect the flow and retry with a smaller `Settings(batch_size=...)`.
+## Repository
+
+| Directory | Contents |
+|-----------|----------|
+| [`python/`](python/) | the `servoom` library and CLI: cloud client, decoders, layer tools, tests |
+| [`c/`](c/) | the same client and decoders in C99, tested byte-for-byte against the Python output |
+| [`docs/`](docs/) | the browser app at [servoom.pages.dev](https://servoom.pages.dev/), running the Python decoders via Pyodide |
+| [`corpus/`](corpus/) | tooling for the reference corpus both test suites share (the artworks themselves are local-only) |
+
+Reference documents, all reverse-engineered and verified live:
+
+| Document | Covers |
+|----------|--------|
+| [`CLOUD_API.md`](CLOUD_API.md) | gallery, user, tag, discovery and playlist endpoints: fields, filters, page caps, which calls need a token |
+| [`FORUM_API.md`](FORUM_API.md) | the forum feed, comments, notification inbox and chat-room directory |
+| [`FILE_FORMATS.md`](FILE_FORMATS.md) | which container holds stills or animations, with the evidence per format |
+| [`python/layer-tools/LAYER_FILE_FORMAT.md`](python/layer-tools/LAYER_FILE_FORMAT.md) | the layer-file container (format 0x27) |
+
+## Other ways in
+
+- **Browser:** [servoom.pages.dev](https://servoom.pages.dev/) browses categories and users and exports WebP, GIF or the raw file. It runs the same decoder as the Python library.
+- **C:** `c/` builds a static library and a `servoom` executable with the same commands; see [`c/README.md`](c/README.md).
+- **Desktop:** [Pixoo64-Advanced-Tools](https://github.com/tidyhf/Pixoo64-Advanced-Tools) by tidyhf is a third-party desktop browser for comments and likes.
+
+## Contributing
+
+The decoders are held to one contract: byte-identical output between Python and C on the
+reference corpus. A decoder change means updating the Python source, regenerating the
+corpus baseline, and passing `ctest` in `c/`. Endpoint additions are read-only and go into
+the endpoint map first. Never commit credentials or other users' artworks; both are
+git-ignored on purpose.
 
 ## Credits
-`servoom` expands upon https://github.com/redphx/apixoo by redphx. Without redphx's seminal work, very likely this project would not be here now.
+
+servoom expands upon [apixoo](https://github.com/redphx/apixoo) by redphx, whose work on
+the Divoom API and file formats made this project possible.
 
 ## License
 
-Apache License 2.0 — see [`LICENSE`](LICENSE). The decoders build on reverse-engineering work
-from https://github.com/redphx/apixoo (MIT).
+[Apache License 2.0](LICENSE). The decoders build on reverse-engineering work from
+[apixoo](https://github.com/redphx/apixoo) (MIT).
