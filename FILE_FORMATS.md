@@ -66,6 +66,111 @@ classes are not: about 8% of the files the server lists as animations decode to 
 frame. Those are animation containers (9, 18, 26, 41, 42) that the uploading app filled
 with one frame; the server keeps the client's choice rather than inspecting the file.
 
+## How the app picks the container
+
+The cloud stores the file the client sends and does not transcode it, so the container is
+chosen by the uploading app. The rule below was read from the artwork encoder of the
+Android app (version 3.8.40) with a decompiler, then checked against the corpus. No
+decompiled code is reproduced here. The iOS app was not examined.
+
+Three things decide the container: the tile grid (canvas size), whether the artwork is
+typed as a still or as an animation, and, at 128x128 and 256x256, the size of the encoded
+file.
+
+| Canvas | Written as | Fallback | Fallback taken when |
+|--------|------------|----------|---------------------|
+| 16x16 | 8 if still type, 9 if animation type | none | |
+| 32x32 and every other grid that is not 64, 128 or 256 square (the 16-pixel strips) | 17 if still type, 18 if animation type | none | |
+| 64x64 | 26 | none | |
+| 128x128 | 26 | 31 (one JPEG per frame) | the format 26 file is larger than 614,400 bytes (600 KiB) |
+| 256x256 | 42 (zstd of the raw RGB frames) | 43 (a GIF) | the format 42 file is 1,048,576 bytes (1 MiB) or larger |
+
+The remaining containers belong to their own artwork kinds and involve no choice: 12 for
+the scrolling banner, 22 and 23 for the Planet lamp, and 30 for a 16x16 artwork that
+carries a text overlay.
+
+### The size fallbacks
+
+At 128x128 and 256x256 the app first encodes the artwork in the preferred container
+(26 or 42), measures the result, and only if it is over the limit encodes it again in the
+lossy fallback. This is why one canvas size appears in two containers, and why formats 31
+and 43 come from few uploaders: they are what a large animation turns into.
+
+* **Format 42** is zstd (level 20, window log 20) over all frames as raw RGB, so it is
+  lossless. Its limit is on the whole file, header included.
+* **Format 43** holds an ordinary GIF89a, so colours are reduced to GIF palettes. The GIF
+  itself has no size limit: the largest sample is 3.1 MB.
+* **Format 26** reduces every frame to at most 255 colours before packing it.
+* **Format 31** gives each frame a budget of 614,400 / frames bytes and lowers the JPEG
+  quality from 100 in steps of 5 until the frame fits, stopping at 65 whether it fits or
+  not.
+* **64x64** has no fallback. The largest format 26 frame at that size in the samples is
+  about 4.9 KB, which keeps the 92-frame maximum under 450 KB.
+
+The fallbacks do not hold stills. Five raw 256x256 frames are 983,040 bytes, so an
+artwork needs at least six frames to reach 1 MiB as format 42. The largest format 26
+frame at 128x128 in the samples is about 16.4 KB, and at that size it takes 38 frames to
+pass 600 KiB. The samples agree: no format 31 file has fewer than 38 frames and no
+format 43 file fewer than 20.
+
+### Still type or animation type
+
+Below 64x64 the container follows the type the app gave the artwork, not the number of
+frames: a still type is written as 8 or 17, an animation type as 9 or 18. The same type
+is what the app sends as `FileType` at every size (0 and 2 for stills, 1 and 3 for
+animations).
+
+The type comes from where the artwork originated, and is never recomputed from the frame
+count before upload:
+
+* An artwork published or saved from the drawing editor is always given the animation
+  type, even when it has one frame. These are the 1-frame files in formats 9 and 18, and
+  the 1-frame files listed as animations at the larger sizes.
+* An artwork published from the app's local gallery keeps the type it was stored with.
+* An artwork decoded from a downloaded file gets a still type when the file is format 8
+  or 17, or a 1-frame file in format 26, 31, 41, 42 or 43, and an animation type
+  otherwise.
+
+This part was read from the code and not confirmed with a live upload. It also leaves
+open where the stills in the feeds come from, since this build's editor does not produce
+them. The iOS app and older Android builds are the likely sources; neither was examined.
+
+### What the corpus shows
+
+| Prediction | Samples | Result |
+|------------|--------:|--------|
+| No 128x128 format 26 file exceeds 614,400 bytes | 264 | largest is 612,597 bytes |
+| Every format 31 file holds JPEG frames | 147 | all do; largest file 607,317 bytes |
+| No format 42 file reaches 1,048,576 bytes | 398 | 397 hold; largest of them 1,046,319 bytes. One exception, see below |
+| Every format 43 file holds a GIF | 98 | all do |
+| A format 43 artwork would be 1 MiB or more as format 42 | 98 | 69 are, measured on the frames decoded from the GIF. The other 29 are inconclusive: the GIF palette had already removed the detail that made the original large |
+
+Compressing the decoded frames of 72 format 42 files again with the settings above gave
+sizes within 0.6% of the originals at the median, and 8 payloads came out byte-identical.
+
+### Older builds
+
+Three groups of samples do not follow the table. Going by their gallery ids, which grow
+with time, all three predate the current rule:
+
+* **Format 41** appears only between gallery ids 3.98M and 4.06M, the first months of
+  256x256 support, and every frame in the 14 samples is a JPEG. The first format 43 file
+  has id 4.07M. The current app can read format 41 but no longer writes it; format 43
+  took over its role. What made that older build choose 41 over 42 was not determined.
+* **The one format 42 file over 1 MiB** (1,139,417 bytes, id 4005773) is from the same
+  uploader in the same period, before the 1 MiB limit existed.
+* **The two 64x64 format 17 files** have ids near 2.00M. The first format 26 file has
+  id 2.05M, so they date from before format 26.
+
+### Layer files
+
+An artwork drawn with layers is uploaded with a second file holding the layers (see
+`python/layer-tools/LAYER_FILE_FORMAT.md`). Its container is picked the same way:
+0x27 (zstd) is preferred, and if it comes out over 1,572,864 bytes (1.5 MiB) at 256x256,
+or over 819,200 bytes (800 KiB) at smaller sizes, the app also builds 0x28 (one WebP per
+layer) and uploads whichever of the two is smaller. A 256x256 artwork flagged as a photo
+always gets 0x28.
+
 ## Per-format evidence
 
 Files were fetched from the live cloud on 2026-09-24 in three passes: paging the
@@ -103,7 +208,7 @@ one. Decoders for it were added to the Python and C libraries (`PicSingleDecoder
 
 The container carries a tile grid and one LZO-compressed frame, and no frame count. All
 106 samples are single frames (32x32, plus two 64x64 files from one of the format-43
-uploaders). The decoder's fixed `speed = 40` is an invention of the decoder (a still has
+uploaders, which predate format 26). The decoder's fixed `speed = 40` is an invention of the decoder (a still has
 no timing), kept for compatibility.
 
 ### Formats 9, 18, 26, 42: frame count decides
@@ -128,7 +233,9 @@ survey, format 43 from 14). They appeared only under `FileType=3` listings; none
 history of those users (1416 files) shows the same clients writing their stills as
 1-frame format 9, 17, 18, 26, 41 or 42 files and never as format 31 or 43. The smallest
 sample has 20 frames (format 43) and 38 frames (format 31). Both containers have a
-frame-count byte, so a 1-frame file is *representable*; it just has not been seen.
+frame-count byte, so a 1-frame file is *representable*; it just has not been seen. The
+app's selection rule explains why: both are fallbacks for artworks too large for formats
+26 and 42, and a still never is (see "The size fallbacks" above).
 
 ### Format 41: rare, found only through one uploader
 
@@ -137,7 +244,8 @@ thousand during earlier corpus building), which is why it was believed to be a l
 format. It surfaced in the upload history of one of the format-43 producers: 14 files,
 all 256x256, all listed as multi-animation, 10 of them single frames (`speed` 1000) and
 4 real animations (26 to 90 frames). The existing decoder handles all 14 (verified
-visually); they are now in the reference corpus.
+visually); they are now in the reference corpus. The belief was right: the current app
+reads format 41 but does not write it (see "Older builds" above).
 
 ### Format 12: a scrolling banner
 
