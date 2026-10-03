@@ -615,7 +615,7 @@ servoom_status servoom_client_list_category(servoom_client *c, int category_id, 
     cJSON_AddNumberToObject(p, "FileSize", c->settings.file_size_filter);
     cJSON_AddNumberToObject(p, "FileType", 5);
     cJSON_AddNumberToObject(p, "FileSort", 0);
-    cJSON_AddNumberToObject(p, "Version", 12);
+    cJSON_AddNumberToObject(p, "Version", 19); /* below 18 the server hides newer artworks */
     cJSON_AddNumberToObject(p, "RefreshIndex", 0);
     if (extra && merge_into(p, extra) != SERVOOM_OK) {
         cJSON_Delete(p);

@@ -214,13 +214,16 @@ class DivoomClient:
     def fetch_category_files(self, category_id: int, limit: Optional[int] = None,
                              **extra) -> List[Dict]:
         """List files in a gallery category."""
-        return self._list(ApiEndpoint.GET_CATEGORY_FILES, {
-            "Classify": category_id, "FileSize": self._settings.file_size_filter,
-            "FileType": 5, "FileSort": 0, "Version": 12, "RefreshIndex": 0, **extra,
-        }, limit=limit, list_keys=("FileList", "CategoryFileList"))
+        return self._list(ApiEndpoint.GET_CATEGORY_FILES,
+                          self._filters(Classify=category_id, **extra),
+                          limit=limit, list_keys=("FileList", "CategoryFileList"))
 
     def _filters(self, **extra) -> Dict:
-        """The filter block every gallery listing takes (CLOUD_API.md, "Gallery filters")."""
+        """The filter block every gallery listing takes (CLOUD_API.md, "Gallery filters").
+
+        ``Version`` is the client level the server filters by: below 18 it hides newer
+        artworks (CLOUD_API.md, "The Version field"). 19 is what the app sends.
+        """
         return {"Classify": 0, "FileSize": self._settings.file_size_filter, "FileType": 5,
                 "FileSort": 0, "Version": 19, "RefreshIndex": 0, **extra}
 

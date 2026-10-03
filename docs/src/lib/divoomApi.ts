@@ -105,7 +105,7 @@ export async function fetchCategoryFiles(
     FileSize: params.fileSizeMask ?? 31,
     FileType: params.fileType ?? 5,
     FileSort: params.sort ?? 0,
-    Version: 12,
+    Version: 19, // below 18 the server hides newer artworks (CLOUD_API.md)
     RefreshIndex: 0,
     Token: session.token,
     UserId: session.userId,
