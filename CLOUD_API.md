@@ -30,8 +30,9 @@ are only listed.
   `10` unknown command; `11` login required / token mismatch; `12` "Request data is null".
 * Ids arrive as strings in some records (`"ExpertUserId": "400343116"`,
   `"RegionId": "86"`) and as ints in others; requests accept ints everywhere.
-* `Version` and `RefreshIndex` are sent by the app on gallery listings; the server
-  ignores both (identical answers for `Version` absent, 1, 19 and 99).
+* `Version` and `RefreshIndex` are sent by the app on gallery listings. `RefreshIndex` is
+  ignored. `Version` is **not**: it is the client level the server filters artworks by, and
+  a value below 18 silently hides newer artworks (see "The `Version` field").
 
 ### Hosts
 
@@ -63,12 +64,12 @@ warning when a method known to need a token is called that way.
 serves only the first 1,230 items (41 pages of 30) of any `Classify`, whatever the filters.
 Later windows answer `ReturnCode 0` with an empty list, which looks exactly like the real
 end of the listing. With a token the same listings page to the end (totals in the
-`Classify` table below), so categories smaller than the cap (10, 13, 23–36, 40) are
+`Classify` table below), so categories smaller than the cap (10, 13, 23–36) are
 complete anonymously, while the largest show as little as 0.3% of their items (Default).
 Categories 21 and 38 answer empty without a token. Files are not gated:
 `https://f.divoom-gz.com/<FileId>` needs no token, so the cap limits which `FileId`s an
 anonymous caller can learn, not what it can download. Measured on 2026-10-03 for every id
-in 0..40; the other listings (`GetSomeoneListV3`, `SearchGalleryV3`, ...) were not checked
+in 0..40, with `Version 12` on 2026-10-03 and again with `Version 19` the same day; the other listings (`GetSomeoneListV3`, `SearchGalleryV3`, ...) were not checked
 for a cap.
 
 ### Page caps
@@ -94,34 +95,76 @@ Every artwork listing takes the same filter block (`GetCloudBaseRequestV2` in th
 | `FileType` | `0` picture, `1` animation, `2` multi-picture, `3` multi-animation, `4` LED text, `5` all, `6` sand | `9` appears on Planet items (`FileType` filter cannot select it); see `FILE_FORMATS.md` |
 | `Classify` | category id, table below | `servoom.const.GalleryCategory` |
 | `StartNum`, `EndNum` | paging | cap 30 or 100 |
-| `Version`, `RefreshIndex` | ignored | the app sends `19` and `0` |
+| `Version` | client level, send `19` | below 18 the server hides newer artworks, see "The `Version` field" |
+| `RefreshIndex` | ignored | the app sends `0` |
+
+### The `Version` field
+
+`Version` tells the server which app generation is asking, and the server leaves out every
+artwork that needs a newer one. Each artwork has a minimum level; a listing returns only
+the artworks whose level is at or below the `Version` sent, with `ReturnCode 0` and no
+sign that anything was withheld. The levels are nested (an artwork visible at one value
+is visible at every higher one). **Send 19**, as the current app does; 18 through 1000
+answered identically, and a string (`"19"`) works like the number.
+
+Measured on 2026-10-03 on the Recommend feed (`Classify 18`), every `Version` from 1 to
+19 over the 1,058 artworks uploaded in the previous 60 days:
+
+| `Version` | Share of the feed returned | What this level adds |
+|----------:|---------------------------:|----------------------|
+| absent, 0, negative, 1–4 | 0% | nothing recent: 1–3 page through 2018 items only, absent, 0 and negative give a shorter list still |
+| 5–8 | 12% | 16x16, 32x32 and some 64x64 artworks without a layer file |
+| 9–11 | 14% | more 64x64 artworks without a layer file |
+| 12 | 45% | artworks with `CopyrightFlag 1`, at any canvas size |
+| 13–14 | 85% | artworks with a layer file (`LayerFileId`), up to 64x64 |
+| 15–17 | 95% | 128x128 |
+| 18 and up | 100% | 256x256 |
+
+The right-hand column describes what each level mostly contains, not an exact rule: the
+level is not derivable from the record's fields. `CopyrightFlag 1` puts an artwork at
+level 12 whatever its size or layer file in 315 of 338 cases, a few 64x64 artworks sit at
+5 and others at 9 with no visible difference, and the container format does not decide it
+(format 26 files appear at every level from 5 to 15). Over the whole feed, `Version 12`
+returns 29,963 of 41,307 items, and only 46% of the artworks uploaded since February 2026.
+
+Other listings, compared at `Version` absent, 1, 5, 12, 13, 19 and 99:
+
+| Listing | Effect of `Version` |
+|---------|---------------------|
+| `GetCategoryFileListV2`, `Tag/GetTagGalleryListV3`, `Discover/GetAlbumImageListV3` | the ladder above |
+| `GetSomeoneListV3` | empty below 12; 12 and 13 return a slightly different set from 19 and 99 |
+| `SearchGalleryV3` | fewer results when absent (6) or 1 (39); a different set at 5; identical from 12 up for the query tried |
+| `Discover/GetAlbumListV3`, `GetExpertListV4`, `Cloud/GetExpertGallery` | none |
+| `GetMyLikeListV3`, `Playlist/GetSomeOneImageList` | not measured (the test account's lists were empty) |
 
 `Classify` ids and the names the app shows (an id not in the app's tab list still filters,
 the rows marked *hidden* were found by sweeping 0..40). *Items* is how far a logged-in
-client could page on 2026-10-03 with `FileSize 127`, `FileType 5`, `FileSort 0`; a
-narrower `FileSize` gives a different count (Recommend: 13,266 at 16x16, 5,348 at 32x32,
-9,371 at 64x64). Anonymous callers see at most 1,230 of them (see "Anonymous access").
+client could page on 2026-10-03 with `FileSize 127`, `FileType 5`, `FileSort 0`,
+`Version 19`; a narrower `FileSize` gives a different count (Recommend: 16,357 at 16x16,
+7,124 at 32x32, 12,860 at 64x64, 4,099 at 128x128, 865 at 256x256), and so does a lower
+`Version` (Recommend: 29,963 with `Version 12`). Anonymous callers see at most 1,230 of
+them (see "Anonymous access").
 
 | Id | App tab | Items | Id | App tab | Items |
 |---:|---------|------:|---:|---------|------:|
-| 0 | NEW (everything, newest first) | 145,468 | 17 | Season | 27,342 |
-| 1 | Default | 409,319 | 18 | Recommend | 29,963 |
-| 2 | hidden: LED text (`FileType 4`) | 68,919 | 19 | Planet (28-LED lamp artworks, `FileType 9`, `FileSize 8`) | 19,385 |
-| 3 | Character | 110,338 | 20 | Follow (uploads of followed users; needs a token) | per account |
-| 4 | Emoji | 59,679 | 21 | hidden: **held uploads awaiting photo review** (see below) | 7, token only |
-| 5 | Daily | 23,949 | 22 | `ReturnCode 3` | |
-| 6 | Nature | 113,400 | 23–28 | hidden: legacy/event buckets (Signboard 2020, Halloween, ...) | 93–167 each |
-| 7 | Icon | 47,399 | 29 | Pixel Coloring (fill game) | 226 |
-| 8 | Pattern | 87,818 | 30 | Pixel Match (current event, see `Cloud/GetMatchInfo`) | 184 |
-| 9 | Creative | 42,183 | 31 | Plant | 18 |
+| 0 | NEW (curated: every item has `IsAddNew 1`) | 184,147 | 17 | Season | 32,155 |
+| 1 | Default | 447,003 | 18 | Recommend | 41,307 |
+| 2 | hidden: LED text (`FileType 4`) | 68,919 | 19 | Planet (28-LED lamp artworks, `FileType 9`, `FileSize 8`) | 19,393 |
+| 3 | Character | 127,005 | 20 | Follow (uploads of followed users; needs a token) | per account |
+| 4 | Emoji | 66,200 | 21 | hidden: **held uploads awaiting photo review** (see below) | 35, token only |
+| 5 | Daily | 27,970 | 22 | hidden: 12 same-day uploads with a token on 2026-10-03 (`ReturnCode 3` on 2026-09-29), not identified | 12 |
+| 6 | Nature | 137,693 | 23–28 | hidden: legacy/event buckets (Signboard 2020, Halloween, ...) | 93–167 each |
+| 7 | Icon | 53,041 | 29 | Pixel Coloring (fill game) | 226 |
+| 8 | Pattern | 94,754 | 30 | Pixel Match (current event, see `Cloud/GetMatchInfo`) | 301 |
+| 9 | Creative | 49,459 | 31 | Plant | 18 |
 | 10 | hidden: old bucket, still populated | 283 | 32 | Animal | 82 |
 | 11 | hidden: old bucket, still populated | 13,557 | 33 | Human | 30 |
-| 12 | Photo | 298,253 | 34 | Emoji (second bucket) | 19 |
+| 12 | Photo | 381,395 | 34 | Emoji (second bucket) | 19 |
 | 13 | hidden: old bucket, still populated | 101 | 35 | Food | 23 |
-| 14 | hidden: same feed as 0 | 153,705 | 36 | Others | 44 |
-| 15 | Gadget | 16,234 | 37, 39 | moderator queues, empty for a normal account | 0 |
-| 16 | Business | 2,982 | 38 | hidden: unidentified queue, served to any logged-in account | 42,599, token only |
-| | | | 40 | AI | 1,148 |
+| 14 | hidden: same feed as 0 | 193,888 | 36 | Others | 44 |
+| 15 | Gadget | 18,368 | 37, 39 | moderator queues; 37 empty, 39 held 2 same-day uploads on 2026-10-03 | 0, 2 |
+| 16 | Business | 3,177 | 38 | hidden: unidentified queue, served to any logged-in account | 46,849, token only |
+| | | | 40 | AI | 7,950 |
 | | | | 254 | reported images (moderator) | |
 | | | | 255 | one placeholder record | |
 
