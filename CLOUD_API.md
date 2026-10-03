@@ -59,6 +59,18 @@ on 2026-09-29, requests sent with no `Token`/`UserId` at all:
 `DivoomClient(anonymous=True)` skips credentials and sends no auth fields; it logs a
 warning when a method known to need a token is called that way.
 
+**Anonymous listings stop after 1,230 items.** Without a token, `GetCategoryFileListV2`
+serves only the first 1,230 items (41 pages of 30) of any `Classify`, whatever the filters.
+Later windows answer `ReturnCode 0` with an empty list, which looks exactly like the real
+end of the listing. With a token the same listings page to the end (totals in the
+`Classify` table below), so categories smaller than the cap (10, 13, 23–36, 40) are
+complete anonymously, while the largest show as little as 0.3% of their items (Default).
+Categories 21 and 38 answer empty without a token. Files are not gated:
+`https://f.divoom-gz.com/<FileId>` needs no token, so the cap limits which `FileId`s an
+anonymous caller can learn, not what it can download. Measured on 2026-10-03 for every id
+in 0..40; the other listings (`GetSomeoneListV3`, `SearchGalleryV3`, ...) were not checked
+for a cap.
+
 ### Page caps
 
 | Cap | Endpoints |
@@ -85,29 +97,33 @@ Every artwork listing takes the same filter block (`GetCloudBaseRequestV2` in th
 | `Version`, `RefreshIndex` | ignored | the app sends `19` and `0` |
 
 `Classify` ids and the names the app shows (an id not in the app's tab list still filters,
-the rows marked *hidden* were found by sweeping 0..40):
+the rows marked *hidden* were found by sweeping 0..40). *Items* is how far a logged-in
+client could page on 2026-10-03 with `FileSize 127`, `FileType 5`, `FileSort 0`; a
+narrower `FileSize` gives a different count (Recommend: 13,266 at 16x16, 5,348 at 32x32,
+9,371 at 64x64). Anonymous callers see at most 1,230 of them (see "Anonymous access").
 
-| Id | App tab | Id | App tab |
-|---:|---------|---:|---------|
-| 0 | NEW (everything, newest first) | 17 | Season |
-| 1 | Default | 18 | Recommend |
-| 2 | hidden: LED text (`FileType 4`) | 19 | Planet (28-LED lamp artworks, `FileType 9`, `FileSize 8`) |
-| 3 | Character | 20 | Follow (uploads of followed users; needs a token) |
-| 4 | Emoji | 21 | hidden: **held uploads awaiting photo review** (see below) |
-| 5 | Daily | 22 | `ReturnCode 3` |
-| 6 | Nature | 23–28 | hidden: legacy/event buckets (Signboard 2020, Halloween, ...) |
-| 7 | Icon | 29 | Pixel Coloring (fill game) |
-| 8 | Pattern | 30 | Pixel Match (current event, see `Cloud/GetMatchInfo`) |
-| 9 | Creative | 31 | Plant |
-| 10, 11, 13 | hidden: old buckets, still populated | 32 | Animal |
-| 12 | Photo | 33 | Human |
-| 14 | hidden: same feed as 0 | 34 | Emoji (second bucket) |
-| 15 | Gadget | 35 | Food |
-| 16 | Business | 36 | Others |
-| | | 37, 38, 39 | moderator queues (empty or nonsense for a normal account) |
-| | | 40 | AI |
-| | | 254 | reported images (moderator) |
-| | | 255 | one placeholder record |
+| Id | App tab | Items | Id | App tab | Items |
+|---:|---------|------:|---:|---------|------:|
+| 0 | NEW (everything, newest first) | 145,468 | 17 | Season | 27,342 |
+| 1 | Default | 409,319 | 18 | Recommend | 29,963 |
+| 2 | hidden: LED text (`FileType 4`) | 68,919 | 19 | Planet (28-LED lamp artworks, `FileType 9`, `FileSize 8`) | 19,385 |
+| 3 | Character | 110,338 | 20 | Follow (uploads of followed users; needs a token) | per account |
+| 4 | Emoji | 59,679 | 21 | hidden: **held uploads awaiting photo review** (see below) | 7, token only |
+| 5 | Daily | 23,949 | 22 | `ReturnCode 3` | |
+| 6 | Nature | 113,400 | 23–28 | hidden: legacy/event buckets (Signboard 2020, Halloween, ...) | 93–167 each |
+| 7 | Icon | 47,399 | 29 | Pixel Coloring (fill game) | 226 |
+| 8 | Pattern | 87,818 | 30 | Pixel Match (current event, see `Cloud/GetMatchInfo`) | 184 |
+| 9 | Creative | 42,183 | 31 | Plant | 18 |
+| 10 | hidden: old bucket, still populated | 283 | 32 | Animal | 82 |
+| 11 | hidden: old bucket, still populated | 13,557 | 33 | Human | 30 |
+| 12 | Photo | 298,253 | 34 | Emoji (second bucket) | 19 |
+| 13 | hidden: old bucket, still populated | 101 | 35 | Food | 23 |
+| 14 | hidden: same feed as 0 | 153,705 | 36 | Others | 44 |
+| 15 | Gadget | 16,234 | 37, 39 | moderator queues, empty for a normal account | 0 |
+| 16 | Business | 2,982 | 38 | hidden: unidentified queue, served to any logged-in account | 42,599, token only |
+| | | | 40 | AI | 1,148 |
+| | | | 254 | reported images (moderator) | |
+| | | | 255 | one placeholder record | |
 
 ### Category 21: the review queue
 

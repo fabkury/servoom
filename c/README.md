@@ -59,7 +59,8 @@ servoom download-user USER_ID [-o DIR] [--limit N]                       (creden
 Credentials are `SERVOOM_EMAIL` with `SERVOOM_MD5_PASSWORD` or `SERVOOM_PASSWORD`, as in
 the Python tool; never commit them. Without credentials the cloud commands run
 anonymously, which every listing above allows ([`CLOUD_API.md`](../CLOUD_API.md) says
-which endpoints need a token).
+which endpoints need a token), though a category listing then stops after its first
+1,230 items.
 
 ## Library
 

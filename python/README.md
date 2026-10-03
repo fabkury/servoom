@@ -20,9 +20,10 @@ the optional `pytoshop` (only needed to export layer files to PSD).
 
 Decoding local files needs no account, and most cloud listings work anonymously
 (`DivoomClient(anonymous=True)`; [`CLOUD_API.md`](../CLOUD_API.md) lists which endpoints
-answer without a token). Downloads by gallery id, tag galleries, your own lists and the
-inbox need a login. The client takes the email of a Divoom account and the **MD5 hash** of
-its password, never the plain password, from one of:
+answer without a token), though a category listing then stops after its first 1,230
+items. Downloads by gallery id, tag galleries, your own lists and the inbox need a login.
+The client takes the email of a Divoom account and the **MD5 hash** of its password, never
+the plain password, from one of:
 
 1. the environment: `SERVOOM_EMAIL` and `SERVOOM_MD5_PASSWORD` (or `SERVOOM_PASSWORD`,
    which is hashed for you), or
