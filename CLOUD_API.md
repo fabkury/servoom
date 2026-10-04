@@ -12,7 +12,8 @@ throwaway account, and the field lists below are what the server actually return
 decompiled code is reproduced here or in servoom; the client is written from scratch.
 Everything read-only that answered is wired into `DivoomClient`
 (`python/servoom/client.py`); write-side, device-bound, commerce and moderation commands
-are only listed.
+are only listed. The one exception is the artwork upload, described in "Uploading an
+artwork" and still not wired.
 
 ## Conventions
 
@@ -243,6 +244,114 @@ All verified, all take the filter block above and page with `StartNum`/`EndNum`.
   to 16x16); modern multi-panel formats come back with `PicCount 1` and an empty
   `FileData`. `fetch_legacy_preview`.
 
+## Uploading an artwork
+
+The one write command described in detail. servoom does not call it; this section records
+what the app sends, and what the server accepted in a live test on 2026-10-03: ten private
+16x16 stills (format 8, built from scratch) uploaded from the throwaway account and
+deleted afterwards. Only that kind of artwork was uploaded. Everything about animations,
+larger canvases, music, layers, photo and AI uploads is read from the app (3.8.40) and
+not confirmed live.
+
+### The request
+
+Unlike every other command, the upload is a `multipart/form-data` `POST`, to
+`Cloud/GalleryUploadV3`. The app switches to `Cloud/GalleryAsyncUploadV3` when the file
+parts add up to 500,000 bytes or more; that command takes the same request, also accepted
+the 769-byte test file, and adds `RunTime` to the response. The app posts uploads to
+`appusa.divoom-gz.com` (international region); `appin.divoom-gz.com` accepted the same
+request with the same token.
+
+| Part | Content | Sent |
+|------|---------|------|
+| `pixelFile` | the artwork container (`FILE_FORMATS.md`) | always; without it the answer is `ReturnCode 1` |
+| `musicFile` | attached music | only when the artwork has music |
+| `layerFile` | the layer file (`FILE_FORMATS.md`, "Layer files") | only when the artwork has layers |
+| `json` | the metadata below, as one JSON string | always |
+
+The file parts use their own name as the file name. The server stores `pixelFile`
+untouched: the file downloaded back was byte-identical to the one sent.
+
+### The metadata
+
+*Required* is what the live test showed: leaving the field out gives `ReturnCode 3`.
+The other fields could be left out; the test never omitted `PrivateFlag`, to keep the
+uploads private.
+
+| Field | What the app sends | Required |
+|-------|--------------------|----------|
+| `Token`, `UserId` | from `/UserLogin`; a wrong token gives `ReturnCode 11` | yes |
+| `FileMD5` | 32 lowercase hex digits, see below | yes |
+| `Classify` | the category picked on the publish screen (table under "Gallery filters") | yes |
+| `FileType` | `0` still, `1` animation, `2`/`3` their multi-panel forms, `4` LED text, `9` Planet lamp; `6`, `7` and `8` belong to other artwork kinds | yes |
+| `FileSize` | one bit of the size mask: `1` 16x16, `2` 32x32, `4` 64x64, `16` 128x128, `32` 256x256, `8` Planet lamp, `64` round canvas | no; stored as `1` when absent |
+| `FileName` | the title | no; stored as a single space |
+| `Content` | the caption | no |
+| `FileTagArray` | the `#tags` found in the caption, without `#`; left out when there are none | no |
+| `AtList` | the `@mentions`, `{AtUserId, AtNickName}` with the id as a string; left out when there are none | no |
+| `PrivateFlag` | `1` keeps the artwork out of every public listing | not tested |
+| `CopyrightFlag` | `1` when the publish screen's copyright switch is off | no |
+| `HideFlag` | carried over from the artwork, `0` for a new one | no |
+| `PhotoFlag`, `AIFlag` | `1` when the artwork came from a photo / from the AI generator | no |
+| `ReviewFlag` | result of the image check the app runs itself on photo and AI artworks before uploading: `1` passed, `2` flagged, `0` not run or failed to run | no |
+| `OriginalGalleryId` | `GalleryId` of the cloud artwork this one was made from, else `0` | no |
+| `TextString` | the text of an LED-text artwork or of a text overlay | no |
+| `Version` | the client level the artwork needs, see below | no |
+| `IsAndroid` | always `1` | no |
+| `DeviceId` | the connected device, `0` without one | no |
+
+The request model also has `FileId`, `MusicFileId` and `LayerFileId`. The upload routine
+never fills them: the files travel as parts and the server assigns the ids.
+
+**`Version`** starts at 5 and is raised to the newest feature the artwork uses; when
+several apply, the last match in this order wins: 7 Planet lamp, 9 a 4x4-panel animation
+of more than 60 frames, 8 text overlay, 12 `CopyrightFlag 1`, 13 layers, 14 single-panel
+artwork with text, 15 128x128, 18 256x256, 19 AI. These are the levels listings filter by
+(see "The `Version` field").
+
+**`FileMD5`** is, for stills, animations, Planet animations and scrolling banners, the MD5
+of the decoded frame data (the raw RGB frames, not the container), with the text appended
+when a multi-panel artwork has one. For the other kinds it is the MD5 of the container.
+For `Classify 29` (Pixel Coloring) the app sends the current time in milliseconds instead,
+and forces `OriginalGalleryId` to 0.
+
+The server did not check it in the test: an upload whose `FileMD5` was an arbitrary string
+was accepted, and so were an upload repeating the `FileMD5` of an earlier one with a
+different picture and an upload repeating an earlier picture under a new `FileMD5`. The
+app knows a `ReturnCode 16` for "a file with this MD5 already exists", so duplicate
+detection exists; it did not act on these private uploads.
+
+Two more things the app does: for accounts with the pixel-expert flag it sends
+`PhotoFlag`, `OriginalGalleryId` and `HideFlag` as 0 whatever the artwork says, and
+its publish screen can refuse to upload until the account has a phone or third-party
+login bound. The server did not ask for that: the test account has neither.
+
+A quirk of this build: the upload routine means to send `HideFlag 0` for the Photo
+category (`Classify 12`), but it tests the request's `Classify` before filling it in, so
+that test never matches and `HideFlag` is zeroed only for artworks already marked as
+passed by review.
+
+### The response
+
+`ReturnCode`, `ReturnMessage`, `GalleryId` (the new artwork), `PixelFileId` (the stored
+file, the record's `FileId`), `MusicFileId`, `LayerFileId` (empty when no such part was
+sent) and an empty `PixelFileURL`.
+
+Return codes the app handles beyond the common ones: `16` duplicate file, `19` uploading
+too often, `22` held for review, `24` the account is barred from uploading. None of them
+came up in the test.
+
+### What a private upload looks like afterwards
+
+With `PrivateFlag 1` and `Classify 1` the artwork appeared at once in `GetMyUploadListV3`
+and `Cloud/GalleryInfo`, and neither in the anonymous `GetSomeoneListV3` listing of the
+uploader nor in the Default category feed. Its record had `IsDel 8`, `HideFlag 0` and
+`CheckConfirm 0`; what `IsDel 8` stands for was not established.
+
+`DeleteGalleryV2` (request `GalleryId`) removed it: `Cloud/GalleryInfo` then answers
+`ReturnCode 1` and the upload list no longer has it. The stored file was still served at
+its `FileId` URL minutes after the delete.
+
 ## Users
 
 | Command | Request | Response | Client method | Auth |
@@ -330,7 +439,8 @@ the only way in.
 * **Write side** (never called by servoom): `GalleryLikeV2`, `CommentLikeV2`,
   `FollowExpertV2`, `Tag/Follow`, `HideGalleryV2`, `DeleteGalleryV2`, `Cloud/SetGalleryPrivate`,
   `Cloud/SetGalleryCopyright`, `Cloud/ReportUser`, `ReportGalleryV2`, `ReportCommentV2`,
-  `Cloud/GalleryUploadV3`, `Cloud/GalleryAsyncUploadV3`, `Cloud/UploadPicture`,
+  `Cloud/GalleryUploadV3`, `Cloud/GalleryAsyncUploadV3` (see "Uploading an artwork"),
+  `Cloud/UploadPicture`,
   `Cloud/WeakWatchGallery`, `AddDownloads`, `ReduceDownloads`, `AddWatch`, `Playlist/{NewList,Rename,SetDescribe,SetCover,DeleteList,Hide,AddImageToList,RemoveImage,SendDevice}`,
   `User/{BlackList,SetUserHeadV3,SetUserNewSign,SetBackgroundImageV2,SetKidsMode,DeleteUser,...}`,
   `SetUserInfo`, `ChangPassword`, `UserRegister`, `UserLogout`, `App/DelUser`, `AI/*`,
