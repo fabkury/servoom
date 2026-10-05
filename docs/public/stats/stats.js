@@ -89,15 +89,22 @@
     const lab = (k) => has(k) ? L(k) : k;
     const long = rows.flatMap((r) => series.map(([k, l]) => ({ x: X(r[xk], o.time), y: r[k], s: lab(l) }))).filter((d) => d.y != null && !Number.isNaN(d.y));
     if (!long.length) return wait(s);
+    // o.partial: the last x is a period still in progress, so its segment is drawn dashed
+    const xs = o.partial ? [...new Set(long.map((d) => +d.x))].sort((a, b) => a - b) : [];
+    const lastX = xs.at(-1), prevX = xs.at(-2) ?? lastX;
     legend(s, series);
     const color = { domain: series.map(([, l]) => lab(l)), range: series.map(([, , c]) => cssv(c)) };
     const tipx = (d) => o.time ? (o.time === 'unix' ? timeFmt : dateFmt).format(d.x) : String(d.x);
     const yf = o.pct ? (v) => pct(v, 1) : (v) => fmt(v, v < 10 ? 2 : 0);
     const marks = [P.ruleY([0], { stroke: cssv('--axis') })];
+    if (o.shade) marks.unshift(P.rect([o.shade], { x1: (d) => d[0], x2: (d) => d[1], fill: cssv('--muted'), fillOpacity: 0.13 }));
     if (o.stack) marks.push(P.areaY(long, { x: 'x', y: 'y', fill: 's', fillOpacity: 0.85, curve: 'step-after' }));
-    else marks.push(P.lineY(long, { x: 'x', y: 'y', stroke: 's', strokeWidth: 2, curve: o.curve || 'linear' }));
+    else {
+      marks.push(P.lineY(o.partial ? long.filter((d) => +d.x !== lastX) : long, { x: 'x', y: 'y', stroke: 's', strokeWidth: 2, curve: o.curve || 'linear' }));
+      if (o.partial) marks.push(P.lineY(long.filter((d) => +d.x >= prevX), { x: 'x', y: 'y', stroke: 's', strokeWidth: 2, strokeDasharray: '4,4' }));
+    }
     for (const e of (o.events || [])) marks.push(P.ruleX([X(e.date, 'day')], { stroke: cssv('--muted'), strokeDasharray: '2,3', title: `${e.kind}: ${e.label}` }));
-    marks.push(P.tip(long, P.pointerX({ x: 'x', y: 'y', title: (d) => `${d.s}: ${yf(d.y)}\n${tipx(d)}`, fill: cssv('--surface'), stroke: cssv('--line') })));
+    marks.push(P.tip(long, P.pointerX({ x: 'x', y: 'y', title: (d) => `${d.s}: ${yf(d.y)}\n${tipx(d)}${o.partial && +d.x === lastX ? `\n${L(o.partial)}` : ''}`, fill: cssv('--surface'), stroke: cssv('--line') })));
     draw(s, marks, { ...o, color, x: { type: o.time ? 'utc' : (o.xtype || undefined), ...(o.x || {}) }, yfmt: o.pct ? (d) => pct(d) : undefined });
   }
   /** Horizontal bars. rows: [{label, value, ...}] */
@@ -132,6 +139,17 @@
     s.append($('div', { class: 'scroll' }, t));
   }
   const text = (s, k) => s.append($('p', { class: 'prose' }, L(k)));
+  /** Monthly rows with every month from the first one to `end` present; months without a row count zero. */
+  const fillMonths = (rows, end, fields) => {
+    if (!rows?.length) return rows;
+    const by = new Map(rows.map((r) => [r.m, r])), out = [];
+    let [y, m] = rows[0].m.split('-').map(Number);
+    for (let k = rows[0].m; k <= end; k = `${y}-${String(m).padStart(2, '0')}`) {
+      out.push(by.get(k) || { m: k, ...Object.fromEntries(fields.map((f) => [f, 0])) });
+      if (++m > 12) { m = 1; y++; }
+    }
+    return out;
+  };
   const bySize = (rows, field, xk) => {            // pivot long [{m,size,field}] into wide rows keyed by xk
     const m = new Map();
     for (const r of rows) { if (!m.has(r[xk])) m.set(r[xk], { [xk]: r[xk] }); m.get(r[xk])[r.size] = r[field]; }
@@ -304,10 +322,19 @@
       if (!me) { wait(sec('s_artist_missing'), 'artist_missing'); return; }
       main.append($('div', { class: 'profile' }, avatar(me), $('div', {}, $('h1', {}, me.name), $('p', { class: 'note' }, [me.cc, `${L('level')} ${me.level}`, me.fans != null ? `${fmt(me.fans)} ${L('followers').toLowerCase()}` : null].filter(Boolean).join(' · ')))));
       tiles([['uploads_12m', fmt(me.uploads)], ['picks_12m', fmt(me.picks)], ['likes_12m', fmt(me.likes)], ['views_12m', fmt(me.views)]]);
-      let s = sec('s_a_uploads');
-      lines(s, a?.months, 'm', [['n', 'uploads', '--c1'], ['picks', 'tier_rec', '--c2']], { time: 'month' });
-      s = sec('s_a_likes');
-      lines(s, a?.months, 'm', [['likes', 'raw_likes', '--c1']], { time: 'month' });
+      // The tiles count the 365 days before the snapshot; the monthly charts go further back and shade that window.
+      const now = new Date(idx.generated);
+      const months = fillMonths(a?.months, idx.generated.slice(0, 7), ['n', 'picks', 'likes', 'views']);
+      const mo = { time: 'month', partial: 'month_partial' };
+      if (months?.length > 1) mo.shade = [new Date(Math.max(now - 365 * 864e5, X(months[0].m, 'month'))), X(months.at(-1).m, 'month')];
+      const monthly = (key, series) => {
+        const s = sec(key);
+        lines(s, months, 'm', series, mo);
+        if (mo.shade) s.append($('p', { class: 'note' }, L('a_shade_note')));
+      };
+      monthly('s_a_uploads', [['n', 'uploads', '--c1'], ['picks', 'tier_rec', '--c2']]);
+      monthly('s_a_likes', [['likes', 'raw_likes', '--c1']]);
+      let s;
       s = sec('s_a_fans');
       lines(s, a?.daily, 'day', [['fans', 'followers', '--c3']], { time: 'day', min: 3 });
       s = sec('s_a_daily');
