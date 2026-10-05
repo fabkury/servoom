@@ -81,6 +81,17 @@ for a cap.
 | 100 | `GetSomeoneListV3`, `SearchGalleryV3`, `Discover/GetAlbumImageListV3`, `Comment/GetCommentListV3`, `Cloud/GetLikeUserList`, `Forum/GetList` |
 | none seen | `Medal/GetList` (118 in one answer), `Cloud/GetExpertGallery` (returned 102 for a window of 100) |
 
+**Listing order and completeness are not guaranteed.** With one `FileSize` bit and
+`FileSort 0` a category listing is normally newest-first and complete (checked over
+8,000 pages on 2026-10-04). On 2026-10-05 the same listings were different on every
+host, with or without a token: after the newest 60 artworks came a run of 120 to 390
+artworks from 2020 with no likes or views, in ascending date order, and artworks from
+whole date ranges in the past three weeks were absent from the list altogether, though
+`Cloud/GalleryInfo` showed them public and not deleted. Other `Version` values returned
+yet other states of the same list. Do not stop paging at the first old page, and do not
+read an artwork's absence from a listing as deletion. Counters inside listings are also
+refreshed in batches, roughly every half hour.
+
 `FileListNum` is not a real total: it is `10000` on most listings and `1000` on cached
 ones. Rely on an empty page instead. With `FileSort=1` (popular) the order drifts between
 calls, so two adjacent windows fetched seconds apart can overlap by an item or two.

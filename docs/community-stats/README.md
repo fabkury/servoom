@@ -30,6 +30,15 @@ these documents, the code is right. Known differences:
 * **Layers.** Files record whether a layer file exists, not how many layers it has.
 * **Site languages.** The landing and statistics pages are offered in the tool's five
   languages (English, Spanish, Chinese, Japanese, Russian), sharing its language choice.
+* **Listings are not a reliable index of recent uploads.** On 2026-10-05 several
+  (category, size) lists were missing artworks of whole date ranges (for example Nature
+  16x16 had nothing between 4 and 21 days old) although those artworks still existed
+  and were public, and the same lists showed hundreds of 2020-era artworks with no
+  likes or views right after the newest 60. The day before, the same lists were
+  complete and in order. The cause is on Divoom's side and unknown. The pulse therefore
+  re-reads known artworks one by one when a listing omits them, reads every list with a
+  long look-ahead once a day, and the snapshot never treats a still-public artwork as
+  gone. Upload counts for affected days can still read low until the listings recover.
 * **Listing counters lag.** Like and view counters in listings refresh in batches,
   roughly every 15 to 30 minutes, so hourly figures can be shifted by that much.
 * **Not built:** the monthly workflow re-enable step (daily commits keep the schedules
