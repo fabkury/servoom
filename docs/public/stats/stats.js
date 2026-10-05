@@ -154,9 +154,9 @@
         hourly?.length > 12 ? ['t_people', fmt(daily7(hourly, 'people')), L('t_per_day_30')] : null,
         hourly?.length > 12 ? ['t_likes', fmt(daily7(hourly, 'likes')), L('t_per_day_30')] : null,
         hourly?.length > 12 ? ['t_views', fmt(daily7(hourly, 'views')), L('t_per_day_30')] : null,
-        sg.length ? ['t_signups', fmt(sum(sg, 'accounts') / Math.max(1, (sg[sg.length - 1].t - sg[0].t) / 86400 + 1 / 6)), L('t_per_day')] : null,
+        sg.length ? ['t_signups', fmt(sum(sg, 'per_day') / sg.length), L('t_per_day')] : null,
         lastOf(daily?.uploaders) ? ['t_uploaders', fmt(lastOf(daily.uploaders)['30']), L('t_30d')] : null,
-        lastOf(daily?.likers)?.['30'] ? ['t_likers', fmt(lastOf(daily.likers)['30']), L('t_30d')] : null,
+        daily?.likers?.length >= 7 ? ['t_likers', fmt(lastOf(daily.likers)['30']), L('t_30d')] : null,   // needs a week of like events first
         daily?.catalog ? ['t_catalog', compact(daily.catalog.n), `${compact(daily.catalog.likes)} ${L('likes').toLowerCase()}`] : null,
       ]);
       let s = sec('s_hourly_likes', st?.last_pulse);
