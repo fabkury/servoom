@@ -210,6 +210,8 @@ window.I18N = {
   artist_missing: ['This account is not in the set of featured artists.', 'Esta cuenta no está entre los artistas destacados.', '该账号不在被推介的创作者之列。', 'このアカウントは紹介アーティストに含まれていません。', 'Этого аккаунта нет среди выделенных художников.'],
   s_a_uploads: ['Uploads and Recommend picks per month', 'Subidas y selecciones Recommend al mes', '每月上传与 Recommend 入选', '月間の投稿と Recommend 選出', 'Загрузки и выборы Recommend по месяцам'],
   a_shade_note: ['Shaded: the last 365 days, the period the tiles above count. The dashed end is the month in progress.', 'Sombreado: los últimos 365 días, el periodo que cuentan las cifras de arriba. El tramo discontinuo es el mes en curso.', '阴影部分为最近 365 天，即上方数字统计的时段。虚线末段为尚未结束的当月。', '網掛けは直近 365 日で、上の数値の集計期間です。破線の末端は進行中の月です。', 'Затенены последние 365 дней — период, за который посчитаны показатели выше. Пунктир — текущий, ещё не завершённый месяц.'],
+  avg_hours: ['Average of one reading that covers {n} hours', 'Promedio de una lectura que abarca {n} horas', '一次读数覆盖 {n} 小时，此为平均值', '{n} 時間分をまとめた計測の平均', 'Среднее по одному замеру за {n} ч'],
+  avg_days: ['Average of one reading that covers {n} days', 'Promedio de una lectura que abarca {n} días', '一次读数覆盖 {n} 天，此为平均值', '{n} 日分をまとめた計測の平均', 'Среднее по одному замеру за {n} дн.'],
   month_partial: ['Month in progress', 'Mes en curso', '当月尚未结束', '進行中の月', 'Месяц ещё не завершён'],
   s_a_likes: ['Likes by upload month', 'Me gusta por mes de subida', '按上传月份的点赞', '投稿月別のいいね', 'Лайки по месяцу загрузки'],
   s_a_fans: ['Followers', 'Seguidores', '粉丝', 'フォロワー', 'Подписчики'],

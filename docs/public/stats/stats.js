@@ -87,7 +87,7 @@
     if (!rows || rows.length < (o.min || 2)) return wait(s);
     const P = window.Plot;
     const lab = (k) => has(k) ? L(k) : k;
-    const long = rows.flatMap((r) => series.map(([k, l]) => ({ x: X(r[xk], o.time), y: r[k], s: lab(l) }))).filter((d) => d.y != null && !Number.isNaN(d.y));
+    const long = rows.flatMap((r) => series.map(([k, l]) => ({ x: X(r[xk], o.time), y: r[k], s: lab(l), avg: r.avg }))).filter((d) => d.y != null && !Number.isNaN(d.y));
     if (!long.length) return wait(s);
     // o.partial: the last x is a period still in progress, so its segment is drawn dashed
     const xs = o.partial ? [...new Set(long.map((d) => +d.x))].sort((a, b) => a - b) : [];
@@ -104,7 +104,7 @@
       if (o.partial) marks.push(P.lineY(long.filter((d) => +d.x >= prevX), { x: 'x', y: 'y', stroke: 's', strokeWidth: 2, strokeDasharray: '4,4' }));
     }
     for (const e of (o.events || [])) marks.push(P.ruleX([X(e.date, 'day')], { stroke: cssv('--muted'), strokeDasharray: '2,3', title: `${e.kind}: ${e.label}` }));
-    marks.push(P.tip(long, P.pointerX({ x: 'x', y: 'y', title: (d) => `${d.s}: ${yf(d.y)}\n${tipx(d)}${o.partial && +d.x === lastX ? `\n${L(o.partial)}` : ''}`, fill: cssv('--surface'), stroke: cssv('--line') })));
+    marks.push(P.tip(long, P.pointerX({ x: 'x', y: 'y', title: (d) => `${d.s}: ${yf(d.y)}\n${tipx(d)}${o.partial && +d.x === lastX ? `\n${L(o.partial)}` : ''}${d.avg > 1 ? `\n${L(o.time === 'unix' ? 'avg_hours' : 'avg_days').replace('{n}', d.avg)}` : ''}`, fill: cssv('--surface'), stroke: cssv('--line') })));
     draw(s, marks, { ...o, color, x: { type: o.time ? 'utc' : (o.xtype || undefined), ...(o.x || {}) }, yfmt: o.pct ? (d) => pct(d) : undefined });
   }
   /** Horizontal bars. rows: [{label, value, ...}] */
@@ -150,6 +150,21 @@
     }
     return out;
   };
+  /** A reading taken after missed runs covers several periods (hours for 'unix' rows, days for
+      'day' rows). It is replaced by that many equal rows, one per period, so the chart stays
+      continuous and the totals stay true. span(r) = periods the row covers; such rows get `avg`. */
+  const spread = (rows, xk, kind, fields, span) => {
+    if (!rows?.length) return rows;
+    const at = (v) => kind === 'unix' ? v / 3600 : Date.parse(v + 'T00:00:00Z') / 864e5;
+    const back = (v, j) => kind === 'unix' ? v - 3600 * j : new Date(Date.parse(v + 'T00:00:00Z') - 864e5 * j).toISOString().slice(0, 10);
+    const out = [];
+    rows.forEach((r, i) => {
+      const gap = i ? Math.round(at(r[xk]) - at(rows[i - 1][xk])) : 1;       // never spread over periods that have their own row
+      const k = Math.max(1, Math.min(gap, Math.round(span(r) || 1)));
+      for (let j = k - 1; j >= 0; j--) out.push(k === 1 ? r : { ...r, [xk]: back(r[xk], j), ...Object.fromEntries(fields.map((f) => [f, r[f] == null ? r[f] : r[f] / k])), avg: k });
+    });
+    return out;
+  };
   const bySize = (rows, field, xk) => {            // pivot long [{m,size,field}] into wide rows keyed by xk
     const m = new Map();
     for (const r of rows) { if (!m.has(r[xk])) m.set(r[xk], { [xk]: r[xk] }); m.get(r[xk])[r.size] = r[field]; }
@@ -177,12 +192,14 @@
         daily?.likers?.length >= 7 ? ['t_likers', fmt(lastOf(daily.likers)['30']), L('t_30d')] : null,   // needs a week of like events first
         daily?.catalog ? ['t_catalog', compact(daily.catalog.n), `${compact(daily.catalog.likes)} ${L('likes').toLowerCase()}`] : null,
       ]);
+      const hrs = spread(hourly, 't', 'unix', ['people', 'auto', 'views'], (r) => r.hours);
+      const flows = spread(daily?.flows, 'day', 'day', ['people', 'auto', 'unattributed'], (r) => r.hours / 24);
       let s = sec('s_hourly_likes', st?.last_pulse);
-      lines(s, hourly, 't', [['people', 'people', '--c1'], ['auto', 'automated', '--c2']], { time: 'unix', stack: true, min: 3 });
+      lines(s, hrs, 't', [['people', 'people', '--c1'], ['auto', 'automated', '--c2']], { time: 'unix', stack: true, min: 3 });
       s = sec('s_hourly_views');
-      lines(s, hourly, 't', [['views', 'views', '--c3']], { time: 'unix', min: 3 });
+      lines(s, hrs, 't', [['views', 'views', '--c3']], { time: 'unix', min: 3 });
       s = sec('s_daily_flows', dst?.snapshot);
-      lines(s, daily?.flows, 'day', [['people', 'people', '--c1'], ['auto', 'automated', '--c2'], ['unattributed', 'unattributed', '--c6']], { time: 'day', stack: true, events: ev });
+      lines(s, flows, 'day', [['people', 'people', '--c1'], ['auto', 'automated', '--c2'], ['unattributed', 'unattributed', '--c6']], { time: 'day', stack: true, events: ev });
       s = sec('s_uploads_day');
       lines(s, daily?.uploads?.slice(0, -1), 'day', [['n', 'uploads', '--c1']], { time: 'day', events: ev });
       s = sec('s_uploads_all', st?.generated);
@@ -261,7 +278,7 @@
       if (promo?.before && after.length > 6) s.append($('p', { class: 'note' }, `${L('before_rate')}: ${fmt(promo.before.likes_per_hour, 2)} ${L('likes_h')}, ${fmt(promo.before.views_per_hour, 1)} ${L('views_h')} (n=${fmt(promo.before.n)})`));
       lines(s, after, 'rel', [['people', 'people', '--c1'], ['likes', 'raw_likes', '--c6']], { xtype: 'linear', min: 6, x: { label: L('hours_after') } });
       s = sec('s_refiled');
-      lines(s, cur?.per_day, 'day', [['refiled', 'refiled', '--c4']], { time: 'day' });
+      lines(s, spread(cur?.per_day, 'day', 'day', ['refiled'], (r) => r.days), 'day', [['refiled', 'refiled', '--c4']], { time: 'day' });
     },
 
     async sizes() {
@@ -338,7 +355,7 @@
       s = sec('s_a_fans');
       lines(s, a?.daily, 'day', [['fans', 'followers', '--c3']], { time: 'day', min: 3 });
       s = sec('s_a_daily');
-      lines(s, a?.daily, 'day', [['dlp_day', 'people', '--c1'], ['dl_day', 'raw_likes', '--c6']], { time: 'day', min: 3 });
+      lines(s, spread(a?.daily, 'day', 'day', ['dlp_day', 'dl_day'], (r) => r.days), 'day', [['dlp_day', 'people', '--c1'], ['dl_day', 'raw_likes', '--c6']], { time: 'day', min: 3 });
     },
 
     async audience() {
@@ -346,7 +363,7 @@
       let s = sec('s_likers');
       lines(s, au?.likers, 'day', [['1', 'd1', '--c1'], ['7', 'd7', '--c3'], ['30', 'd30', '--c5']], { time: 'day' });
       s = sec('s_likers_new');
-      lines(s, au?.new_likers, 'day', [['', 'new_likers', '--c1']], { time: 'day' });
+      lines(s, spread(au?.new_likers, 'day', 'day', [''], (r) => r.days), 'day', [['', 'new_likers', '--c1']], { time: 'day' });
       s = sec('s_returning');
       lines(s, au?.returning, 'day', [['', 'returning', '--c1']], { time: 'day', pct: true });
       s = sec('s_who_likes');
@@ -447,7 +464,7 @@
       const [st, dst, daily, meth] = await Promise.all(['pulse/status.json', 'daily/status.json', 'daily/daily.json', 'daily/methods.json'].map(J));
       let s = sec('s_m_what'); text(s, 'm_what');
       s = sec('s_m_people'); text(s, 'm_people');
-      lines(s, daily?.flows, 'day', [['likes', 'raw_likes', '--c6'], ['people', 'people', '--c1']], { time: 'day' });
+      lines(s, spread(daily?.flows, 'day', 'day', ['likes', 'people'], (r) => r.hours / 24), 'day', [['likes', 'raw_likes', '--c6'], ['people', 'people', '--c1']], { time: 'day' });
       table(s, [['r', 'id_range']], (st?.automated_ranges || meth?.ranges || []).map(([lo, hi, par]) => ({ r: `${fmt(lo)} – ${fmt(hi)}${par === 0 ? ' · ' + L('even_ids') : par === 1 ? ' · ' + L('odd_ids') : ''}` })));
       if (meth?.tracked_likes) s.append($('p', { class: 'note' }, `${L('tracked')}: ${fmt(meth.tracked_likes.people)} ${L('people').toLowerCase()}, ${fmt(meth.tracked_likes.automated)} ${L('automated').toLowerCase()}`));
       s = sec('s_m_how'); for (const k of ['m_how1', 'm_how2', 'm_how3']) text(s, k);
