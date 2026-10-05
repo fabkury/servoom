@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Download your own Divoom pixel art, and statistics about the Divoom gallery community." />
+    <title>servoom</title>
+    <link rel="stylesheet" href="/stats/stats.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="./">servoom</a>
+      <nav class="pillars">
+        <a href="download/" data-i18n="n_download">Download</a>
+        <a href="stats/" data-i18n="n_stats">Statistics</a>
+      </nav>
+      <select id="lang" aria-label="Language">
+        <option value="en">English</option>
+        <option value="es">Español</option>
+        <option value="zh">中文</option>
+        <option value="ja">日本語</option>
+        <option value="ru">Русский</option>
+      </select>
+    </header>
+    <main>
+      <h1 data-i18n="land_title">Tools and statistics for the Divoom pixel art cloud</h1>
+      <div class="cards">
+        <a class="card" href="download/">
+          <h2 data-i18n="land_dl_t">Download your artworks</h2>
+          <p data-i18n="land_dl_d">Sign in with your Divoom account and save your own pixel art and animations as GIF, WebP or PSD. Everything runs in your browser.</p>
+          <span class="go"><span data-i18n="land_open">Open</span> →</span>
+        </a>
+        <a class="card" href="stats/">
+          <h2 data-i18n="land_st_t">Community statistics</h2>
+          <p data-i18n="land_st_d">How much attention the Divoom gallery gives: uploads, likes, views, curation and canvas sizes, refreshed every four hours.</p>
+          <span class="go"><span data-i18n="land_open">Open</span> →</span>
+        </a>
+      </div>
+    </main>
+    <footer>
+      <p data-i18n="unofficial">Unofficial. Not affiliated with Divoom.</p>
+      <p><a href="https://github.com/fabkury/servoom">GitHub</a></p>
+    </footer>
+    <script src="/stats/i18n.js"></script>
+    <script>
+      // The language choice is shared with the download tool and the statistics pages.
+      (function () {
+        var locales = ['en', 'es', 'zh', 'ja', 'ru'], key = 'servoom-locale', locale = 'en';
+        try { var s = localStorage.getItem(key); if (locales.indexOf(s) >= 0) locale = s; } catch (e) {}
+        var asked = new URLSearchParams(location.search).get('lang');
+        if (locales.indexOf(asked) >= 0) { locale = asked; try { localStorage.setItem(key, asked); } catch (e) {} }
+        var i = locales.indexOf(locale), pick = document.getElementById('lang');
+        document.documentElement.lang = locale;
+        pick.value = locale;
+        document.querySelectorAll('[data-i18n]').forEach(function (el) {
+          var e = window.I18N[el.getAttribute('data-i18n')];
+          if (e) el.textContent = e[i] || e[0];
+        });
+        pick.addEventListener('change', function () { try { localStorage.setItem(key, pick.value); } catch (e) {} location.replace(location.pathname); });
+      })();
+    </script>
+  </body>
+</html>

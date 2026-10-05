@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -19,9 +20,19 @@ function resolveBase(mode: string): string {
   return '/';
 }
 
+// Two pages are built: the landing page at / and the download tool at /download/.
+// The statistics pages are plain files under public/stats/ and are copied as they are.
 export default defineConfig(({ mode }) => ({
   base: resolveBase(mode),
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        download: resolve(__dirname, 'download/index.html'),
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
     headers: securityHeaders,

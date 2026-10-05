@@ -12,6 +12,7 @@ import {
 } from './lib/divoomApi';
 import { PyodideDecoder, type DecodedBean } from './lib/pyodideDecoder';
 import { layerFileToPsd } from './lib/layerFile';
+import { likePercentile, loadBenchmarks, type Benchmarks } from './lib/benchmarks';
 import logger from './lib/logger';
 
 interface DecodeState {
@@ -688,6 +689,15 @@ const translations: Record<Locale, Translation> = {
   },
 };
 
+// Text for the links to the rest of the site and for the community comparison.
+const siteText: Record<Locale, { home: string; statistics: string; above: (p: number) => string }> = {
+  en: { home: 'Home', statistics: 'Statistics', above: (p) => `More likes than ${p}% of comparable uploads` },
+  es: { home: 'Inicio', statistics: 'Estadísticas', above: (p) => `Más me gusta que el ${p}% de obras comparables` },
+  zh: { home: '首页', statistics: '统计', above: (p) => `点赞数高于 ${p}% 的同类作品` },
+  ja: { home: 'ホーム', statistics: '統計', above: (p) => `同条件の投稿の ${p}% より多いいいね` },
+  ru: { home: 'Главная', statistics: 'Статистика', above: (p) => `Лайков больше, чем у ${p}% сопоставимых работ` },
+};
+
 const localeOptions: Array<{ locale: Locale; icon: string; label: string }> = [
   // Unicode flag emoji: no image assets, no licensing questions.
   { locale: 'en', icon: '🇬🇧', label: 'English' },
@@ -953,6 +963,12 @@ function App() {
   const layerDownloadCache = useRef<Map<number, Uint8Array>>(new Map());
 
   const [locale, setLocale] = useState<Locale>('en');
+  const [benchmarks, setBenchmarks] = useState<Benchmarks | null>(null);
+
+  useEffect(() => {
+    void loadBenchmarks().then(setBenchmarks);
+  }, []);
+
   const t = translations[locale];
 
   useEffect(() => {
@@ -1530,6 +1546,10 @@ function App() {
       <header>
         <div className="header-row">
           <div>
+            <nav className="site-nav">
+              <a href="../">{siteText[locale].home}</a>
+              <a href="../stats/">{siteText[locale].statistics}</a>
+            </nav>
             <h1>{t.header.title}</h1>
             <p>{t.header.tagline}</p>
           </div>
@@ -1716,7 +1736,17 @@ function App() {
                           {item.GalleryId}
                         </button>
                       </td>
-                      <td>{formatNumber(item.LikeCnt)}</td>
+                      <td>
+                        {formatNumber(item.LikeCnt)}
+                        {(() => {
+                          const p = likePercentile(benchmarks, item);
+                          return p === null ? null : (
+                            <span className="percentile" title={siteText[locale].above(p)}>
+                              {p}%
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td>{formatNumber(item.WatchCnt)}</td>
                       <td>{formatEpoch(item.Date)}</td>
                       <td>{interpretFileSizeFlag(item.FileSize as number)}</td>

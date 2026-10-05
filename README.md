@@ -4,9 +4,13 @@ Read the Divoom cloud and decode its pixel art.
 
 ## No programming needed
 
-> **[servoom.pages.dev](https://servoom.pages.dev/)**, the web app: log in with your Divoom
-> account, browse the gallery by category or by user, and save any artwork as WebP, GIF or
-> the original file, straight from the browser.
+> **[servoom.pages.dev/download](https://servoom.pages.dev/download/)**, the web app: log in
+> with your Divoom account, browse the gallery by category or by user, and save any artwork
+> as WebP, GIF or the original file, straight from the browser.
+>
+> **[servoom.pages.dev/stats](https://servoom.pages.dev/stats/)**, community statistics:
+> uploads, likes, views, curation and canvas sizes of the Divoom gallery, refreshed every
+> four hours. The data comes from [servoom-stats](https://github.com/fabkury/servoom-stats).
 >
 > **[Pixoo64-Advanced-Tools](https://github.com/tidyhf/Pixoo64-Advanced-Tools)** by tidyhf,
 > a desktop application for the Pixoo 64 built with servoom: browse the cloud library with

@@ -447,3 +447,31 @@ tr:hover td {
   color: #92a6c0;
   font-size: 0.95rem;
 }
+
+.site-nav {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+.site-nav a {
+  color: inherit;
+  opacity: 0.75;
+  text-decoration: none;
+}
+
+.site-nav a:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.percentile {
+  margin-left: 0.45rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  font-size: 0.72rem;
+  opacity: 0.85;
+  cursor: help;
+}

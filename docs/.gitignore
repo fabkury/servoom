@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Statistics data is downloaded at build time (scripts/fetch-stats.mjs).
+public/stats/data/
