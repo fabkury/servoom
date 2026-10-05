@@ -1,6 +1,8 @@
 downloads/
 out/
 credentials.py
+# ...but not the package module that loads them: it holds no secrets and the package needs it.
+!python/servoom/credentials.py
 __pycache__/
 .pytest_cache/
 
