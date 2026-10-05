@@ -76,7 +76,7 @@
     s.append(fig);
     const width = Math.max(320, Math.min(fig.clientWidth || 860, 900));
     fig.append(window.Plot.plot({
-      width, height: o.h || 250, marginLeft: o.ml || 48, marginBottom: o.mb || 30, marginRight: 12,
+      width, height: o.h || 250, marginLeft: o.ml || 48, marginBottom: o.mb || 30, marginRight: o.mr || 12,
       style: { background: 'transparent', color: cssv('--muted'), fontSize: '11px', fontFamily: 'inherit', overflow: 'visible' },
       x: { label: null, ...(o.x || {}) }, y: { label: null, grid: true, tickFormat: o.yfmt || ((d) => compact(d)), ...(o.y || {}) },
       color: o.color, marks,
@@ -109,7 +109,7 @@
       P.barX(rows, { y: 'label', x: 'value', fill: cssv(o.c || '--c1'), sort: o.keep ? null : { y: '-x' }, insetTop: 3, insetBottom: 3, title: (d) => `${d.label}: ${yf(d.value)}` }),
       P.text(rows, { y: 'label', x: 'value', text: (d) => yf(d.value), dx: 6, textAnchor: 'start', fill: cssv('--ink2') }),
       P.ruleX([0], { stroke: cssv('--axis') }),
-    ], { h: 26 * rows.length + 40, ml: o.ml || 110, x: { grid: true, label: null, tickFormat: o.pct ? (d) => pct(d) : (d) => compact(d) }, y: { label: null, grid: false, tickFormat: (d) => d, domain: o.keep ? rows.map((r) => r.label) : undefined } });
+    ], { h: 26 * rows.length + 40, ml: o.ml || 110, mr: 56, x: { grid: true, label: null, tickFormat: o.pct ? (d) => pct(d) : (d) => compact(d) }, y: { label: null, grid: false, tickFormat: (d) => d, domain: o.keep ? rows.map((r) => r.label) : undefined } });
   }
   /** Hour-by-weekday heatmap in the viewer's chosen UTC offset. rows: [{dow, hod, v}] */
   function heat(s, rows, o = {}) {
@@ -381,7 +381,7 @@
 
     async popular() {
       const p = await J('pulse/popular.json');
-      const name = (l) => { const [c, sz] = l.split('_'); const cn = { 18: L('tier_rec'), 0: L('tier_new') }[c] || `#${c}`; return sz === '127' ? `${cn} (${L('all_sizes')})` : `${cn} ${({ 1: 16, 2: 32, 4: 64, 16: 128, 32: 256 })[sz]}px`; };
+      const name = (l) => { const [c, sz] = l.split('_'); const cn = { 18: L('tier_rec'), 0: L('tier_new'), 1: 'Default', 3: 'Character', 4: 'Emoji', 6: 'Nature', 8: 'Pattern', 12: 'Photo' }[c] || `#${c}`; return sz === '127' ? `${cn} (${L('all_sizes')})` : `${cn} ${({ 1: 16, 2: 32, 4: 64, 16: 128, 32: 256 })[sz]}px`; };
       let s = sec('s_pop_entry');
       table(s, [[(r) => name(r.lst), 'list'], ['n', 'artworks', fmt], ['likes', 'median_likes', fmt], ['views', 'median_views', fmt], ['age_days', 'median_age_days', (v) => fmt(v, 1)], ['rec_share', 'reach_rec', pct]], p?.entry);
       s = sec('s_pop_dwell');
