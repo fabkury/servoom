@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "servoom"
+version = "0.1.0"
+description = "Read-only client for the Divoom cloud and decoders for its artwork containers"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "../LICENSE" }
+dependencies = ["requests", "numpy", "pillow", "lzallright", "pycryptodome", "zstandard"]
+
+[project.optional-dependencies]
+psd = ["pytoshop"]
+
+[tool.setuptools]
+packages = ["servoom"]
