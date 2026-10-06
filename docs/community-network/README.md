@@ -319,9 +319,15 @@ verifier call from a Worker's IP address.
   Two one-minute local runs proved the checkpoint and resume; the first Actions run
   (`workflow_dispatch`, 235 minutes, 8 requests per second) polled about 480 artworks a
   minute. A daily fallback cron at 10:27 UTC continues it until `finished_at` is set.
-  Pool account `spare-01` now carries the role `backfill`; reset it to `spare` by hand when
-  the backfill is finished. Files: `obs/likes-backfill/<first>-<last>.parquet`, rows
-  `(gid, pos, liker, t, auto)`; readers deduplicate by `(gid, liker)`.
+  Files: `obs/likes-backfill/<first>-<last>.parquet`, rows `(gid, pos, liker, t, auto)`;
+  readers deduplicate by `(gid, liker)`.
+* **2026-10-06 20:09 UTC, backfill finished.** 110,195 artworks, 117,481 requests, 57
+  files, two Actions runs (235 and 12 minutes) at 8 requests per second. `spare-01` is a
+  spare again. The daily cron of `backfill.yml` now exits at once; it stays as the
+  recovery path after a long pulse outage (clear `finished_at` and set a new work list).
+  Found on the way: a shallow clone of the raw repository loses its merge base when more
+  than 20 commits land during a run, which broke the day's snapshot at its final push;
+  `rawrepo.push_main` now deepens the clone (servoom-stats 174a861).
 
 ## Still open
 
