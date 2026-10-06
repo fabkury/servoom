@@ -329,6 +329,19 @@ verifier call from a Worker's IP address.
   than 20 commits land during a run, which broke the day's snapshot at its final push;
   `rawrepo.push_main` now deepens the clone (servoom-stats 174a861).
 
+* **2026-10-06, graph job built.** `stats/graph.py` + `graph.yml` in `servoom-stats`
+  (runs after the snapshot or at 09:27 UTC; no Divoom requests). First full run: 10,339
+  artists, 134,487 edges, 12,493 mutual pairs, 82 seconds. The resolution rule changed:
+  the median-size target alone chose 0.5, where one community held 75% of artists, so
+  the rule now requires the largest community under 15% of nodes and then the median
+  closest to 150; that pinned **1.5** (56 communities of 20 or more, largest 1,156,
+  median 76, modularity 0.50 against 0.36 for a degree-preserving shuffle). Published
+  under `data/community/`: `communities.json`, `flows.json`, `history.json`,
+  `artists/<id>.json` for the 472 top artists in the graph, `map.bin` (id-free dots,
+  shuffled order), `config.json` (pinned resolution and the trials), `status.json`.
+  Day-to-day stability is measured from the second run on (`status.stability`).
+  Audience country mix is not available: likers' countries are not stored. Pages next.
+
 ## Still open
 
 * Whether to resolve neighbours' names live in the self view through the visitor's own
