@@ -105,10 +105,12 @@ list of its **top artists** only.
 
 ### Map
 
-A node embedding of the map window graph (spectral embedding of the normalised adjacency,
-32 dimensions; node2vec if the spectral one looks poor on the first prototype), reduced
-with UMAP to 2D with a fixed random seed and initialised from yesterday's positions so the
-map drifts rather than jumps. Output: one position per artist, in a compact binary file
+UMAP (cosine metric) on the rows of the normalised adjacency, lightly supervised by the
+Leiden labels (`target_weight 0.3`) so communities form readable patches, with a fixed
+random seed and initialised from yesterday's positions so the map drifts rather than
+jumps. A spectral embedding followed by UMAP was tried first on 2026-10-06 and gave a
+thin curve; igraph's DrL and Fruchterman-Reingold layouts collapsed the giant component
+into one ball. Output: one position per artist, in a compact binary file
 (Float32 x, y; Uint16 community; Uint8 size class; Uint32 id only for top artists).
 
 ### Audience
@@ -341,6 +343,12 @@ verifier call from a Worker's IP address.
   shuffled order), `config.json` (pinned resolution and the trials), `status.json`.
   Day-to-day stability is measured from the second run on (`status.stability`).
   Audience country mix is not available: likers' countries are not stored. Pages next.
+
+* **2026-10-06, pages built.** `docs/public/community/` in servoom: map, communities,
+  community, flows, artists, artist, history, methods, in the five languages, sharing
+  `stats.css`, `i18n.js` and the vendored d3/Plot; `community.js` draws the map on a
+  canvas (zoom, hover, labels for top artists), chord diagrams and the ego graph. The
+  landing page and the stats pillar navigation link to it. Not built: the self view.
 
 ## Still open
 

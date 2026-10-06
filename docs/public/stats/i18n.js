@@ -4,6 +4,9 @@ window.I18N = {
   // navigation
   n_download: ['Download', 'Descargar', '下载', 'ダウンロード', 'Загрузка'],
   n_stats: ['Statistics', 'Estadísticas', '统计', '統計', 'Статистика'],
+  n_community: ['Community', 'Comunidad', '社群', 'コミュニティ', 'Сообщество'],
+  land_cm_t: ['Community map', 'Mapa de la comunidad', '社群地图', 'コミュニティマップ', 'Карта сообщества'],
+  land_cm_d: ['Who likes whose work: the Divoom artist community as a map of groups, drawn from public likes and refreshed daily.', 'A quién le gusta el trabajo de quién: la comunidad de artistas de Divoom como un mapa de grupos, trazado a partir de "me gusta" públicos y actualizado a diario.', '谁喜欢谁的作品：根据公开点赞绘制、每日更新的 Divoom 画师社群分组地图。', '誰が誰の作品を好むか：公開された「いいね」から描き、毎日更新する Divoom アーティストコミュニティの地図。', 'Кому чьи работы нравятся: сообщество художников Divoom как карта групп, построенная по публичным лайкам и обновляемая ежедневно.'],
   language: ['Language', 'Idioma', '语言', '言語', 'Язык'],
   unofficial: ['Unofficial. Not affiliated with Divoom.', 'No oficial. Sin relación con Divoom.', '非官方网站，与 Divoom 无关。', '非公式サイトです。Divoom とは関係ありません。', 'Неофициальный сайт. Не связан с Divoom.'],
   updated: ['Updated', 'Actualizado', '更新于', '更新', 'Обновлено'],
