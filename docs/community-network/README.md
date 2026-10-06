@@ -311,6 +311,18 @@ verifier call from a Worker's IP address.
 6. Comments overlay, then the Studies entries on `/stats/` (reciprocity rings, bridges,
    newcomer adoption), then tags and remix links as further edge types.
 
+## Status
+
+* **2026-10-06, backfill started.** `stats/backfill_likes.py` and workflow `backfill.yml`
+  in `servoom-stats` (commit 88fbd45). Work list fixed at 110,195 artworks dated
+  2025-10-05 to 2026-10-05 01:23 UTC (when the pulse log began), 117,341 pages expected.
+  Two one-minute local runs proved the checkpoint and resume; the first Actions run
+  (`workflow_dispatch`, 235 minutes, 8 requests per second) polled about 480 artworks a
+  minute. A daily fallback cron at 10:27 UTC continues it until `finished_at` is set.
+  Pool account `spare-01` now carries the role `backfill`; reset it to `spare` by hand when
+  the backfill is finished. Files: `obs/likes-backfill/<first>-<last>.parquet`, rows
+  `(gid, pos, liker, t, auto)`; readers deduplicate by `(gid, liker)`.
+
 ## Still open
 
 * Whether to resolve neighbours' names live in the self view through the visitor's own
