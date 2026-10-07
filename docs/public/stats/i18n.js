@@ -4,9 +4,9 @@ window.I18N = {
   // navigation
   n_download: ['Download', 'Descargar', '下载', 'ダウンロード', 'Загрузка'],
   n_stats: ['Statistics', 'Estadísticas', '统计', '統計', 'Статистика'],
-  n_community: ['Community', 'Comunidad', '社群', 'コミュニティ', 'Сообщество'],
-  land_cm_t: ['Community map', 'Mapa de la comunidad', '社群地图', 'コミュニティマップ', 'Карта сообщества'],
-  land_cm_d: ['Who likes whose work: the Divoom artist community as a map of groups, drawn from public likes and refreshed daily.', 'A quién le gusta el trabajo de quién: la comunidad de artistas de Divoom como un mapa de grupos, trazado a partir de "me gusta" públicos y actualizado a diario.', '谁喜欢谁的作品：根据公开点赞绘制、每日更新的 Divoom 画师社群分组地图。', '誰が誰の作品を好むか：公開された「いいね」から描き、毎日更新する Divoom アーティストコミュニティの地図。', 'Кому чьи работы нравятся: сообщество художников Divoom как карта групп, построенная по публичным лайкам и обновляемая ежедневно.'],
+  n_artists: ['Artists', 'Artistas', '画师', 'アーティスト', 'Художники'],
+  land_ar_t: ['Artists and their likes', 'Artistas y sus "me gusta"', '画师与点赞', 'アーティストと「いいね」', 'Художники и лайки'],
+  land_ar_d: ['Who likes whose work: featured Divoom artists, the artists who like them and the ones they like, from public likes, refreshed daily.', 'A quién le gusta el trabajo de quién: artistas destacados de Divoom, los artistas que los aprecian y los que ellos aprecian, a partir de "me gusta" públicos, actualizado a diario.', '谁喜欢谁的作品：Divoom 精选画师、为他们点赞的画师以及他们喜欢的画师，来自公开点赞，每日更新。', '誰が誰の作品を好むか：Divoom の注目アーティストと、彼らに「いいね」するアーティスト、彼らが「いいね」するアーティスト。公開された「いいね」から毎日更新。', 'Кому чьи работы нравятся: избранные художники Divoom, кто лайкает их и кого лайкают они, по публичным лайкам, обновляется ежедневно.'],
   language: ['Language', 'Idioma', '语言', '言語', 'Язык'],
   unofficial: ['Unofficial. Not affiliated with Divoom.', 'No oficial. Sin relación con Divoom.', '非官方网站，与 Divoom 无关。', '非公式サイトです。Divoom とは関係ありません。', 'Неофициальный сайт. Не связан с Divoom.'],
   updated: ['Updated', 'Actualizado', '更新于', '更新', 'Обновлено'],
