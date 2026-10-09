@@ -84,11 +84,14 @@ the deploy hook (`05-servoom-umbrella.md`). Its own polling:
 | Category totals, contest, tags | about 150 |
 | **Total** | **about 440** |
 
-### Snapshot, every day
+### Snapshot, every two days
 
-Purpose: everything else. Decided 2026-10-04: **nothing on the site is slower than
-daily**, so the snapshot reads the whole catalog every day, and the request volume is
-allowed to be higher than first planned.
+Purpose: everything else. Decided 2026-10-04 that the snapshot reads the whole catalog
+every day; revised 2026-10-09, after Divoom capped the snapshot account to anonymous
+depth following about 100,000 requests in three days, to **every two days**. The
+pulse still reads the past 30 days of uploads hourly, so only artworks older than 30
+days wait up to two days for a reading. The series below are per snapshot; the site
+divides flows by the days each reading covers.
 
 | Step | Requests |
 |------|---------:|

@@ -43,7 +43,7 @@ servoom-stats (Actions, 4-hourly)               servoom (Cloudflare Pages build)
   does not fail a build: the status box on the site reports its age.
 * The pipeline cannot see whether the deploy worked, so each snapshot run first reads
   `servoom.pages.dev/stats/data/status.json` and opens an issue if the live data is more
-  than 12 hours old.
+  than two days old.
 * Builds per month: about 180 from the hook plus pushes, against a free limit of 500.
 * The GitHub Pages mirror (`deploy-pages.yml`) runs the same `npm run build`, so it
   picks up the data the same way, on pushes only.

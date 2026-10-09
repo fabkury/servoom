@@ -14,7 +14,7 @@ re-checked against GitHub's documentation on 2026-10-04. The other rows are from
 
 | Limit | Value | Effect on this design |
 |-------|-------|-----------------------|
-| Job run time | 6 hours | the daily snapshot takes about 3.5 hours and checkpoints every 20 minutes, so a cancelled run resumes |
+| Job run time | 6 hours | the snapshot (every two days) takes about 3.5 hours and checkpoints every 20 minutes, so a cancelled run resumes |
 | Concurrent jobs (Free plan) | 20 | at most two run at once (pulse and snapshot) |
 | Shortest cron interval | 5 minutes | not needed; hourly is used |
 | Schedule accuracy | runs start late under load, often 5 to 30 minutes, and can be dropped | flows use the real time between observations; cron minutes avoid :00 |
@@ -45,8 +45,9 @@ the real scarce resource is requests to Divoom's servers.
 
 * **One job per run**, no matrix. Minutes are rounded up per
   job, so many small jobs waste more than one longer one.
-* **The pulse reads only what moves fast**: 30 days of uploads. The daily snapshot reads
-  the whole catalog, by decision, so that no figure on the site is older than a day.
+* **The pulse reads only what moves fast**: 30 days of uploads. The snapshot reads the
+  whole catalog every two days, so that no figure on the site is older than two days
+  and each polling account sends about 33,000 requests a day on average.
 * **Like lists only where a counter moved.**
 * **Exit early.** If the health flag is `halted`, or Divoom is unreachable, the job ends
   in seconds.

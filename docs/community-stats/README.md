@@ -54,8 +54,8 @@ these documents, the code is right. Known differences:
 | Automated likes | Corrected "semi-quietly": the headline like figures exclude the like block, the raw counter is shown beside them, and the methods page explains the correction with one chart. No dedicated page about the block. |
 | Repositories | `servoom-stats` (new, public) holds the pipeline and the aggregate data. `servoom-raw` (new, private) holds raw data and accounts. The site's pages live in `servoom`. |
 | Raw data | Not public. Per-artwork and per-account rows, including the like event log, live in a private companion repository; rows older than 24 months are reduced to aggregates. |
-| Cadence | A pulse every hour over the past 30 days of uploads, a site refresh every 4 hours, a whole-catalog snapshot once a day. Nothing on the site is slower than daily. |
-| Account recovery | A pool of 2 to 3 polling accounts. On failure the pipeline rotates, then registers at most one new account per week and opens an issue. |
+| Cadence | A pulse every hour over the past 30 days of uploads, a site refresh every 4 hours, a whole-catalog snapshot every two days (daily until 2026-10-09). Nothing on the site is slower than two days. |
+| Account recovery | One polling account per job plus three spares. A capped or failing account is retired and a spare takes over in the same run; the pool registers at most one new account per 3 days and opens an issue. |
 | Site stack | Hand-written static pages under `docs/public/stats/` in `servoom`; the pipeline writes only JSON and avatars. |
 | Hosting | The existing servoom.pages.dev, refactored into a landing page, `/download/` (the current tool) and `/stats/`. Cloudflare keeps building from `servoom`; the build pulls the data and a daily deploy hook triggers it. |
 | Images | Avatars of top artists only, rehosted as lossless WebP. No artworks. |
