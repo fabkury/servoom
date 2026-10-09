@@ -164,8 +164,9 @@ tbody tr:last-child td {{ border-bottom:0 }}
 .search {{ display:flex; gap:10px; align-items:center; flex-wrap:wrap }}
 .search input {{ font:inherit; padding:8px 12px; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--fg); flex:1 1 240px; min-width:0 }}
 .search .cnt {{ font-size:.85rem; color:var(--muted) }}
-#list img {{ width:24px; height:24px; image-rendering:pixelated; display:block; background:#000 }}
+#list img {{ width:24px; height:24px; max-width:none; image-rendering:pixelated; display:block; background:#000 }}
 #list td {{ padding:4px 8px }}
+#list td:first-child, #list th:first-child {{ width:32px; min-width:32px }}
 .more {{ font:inherit; padding:8px 14px; border:1px solid var(--line); background:var(--surface); color:var(--fg); border-radius:6px; cursor:pointer; align-self:flex-start }}
 .method {{ font-size:.9rem; color:var(--fg2) }}
 .foot {{ font-size:.85rem; color:var(--muted); border-top:1px solid var(--line); padding-top:14px }}
