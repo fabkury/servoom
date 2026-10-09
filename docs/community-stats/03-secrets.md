@@ -59,28 +59,37 @@ Failures are classified before anything is blamed on the account:
 | Network error, HTTP 5xx, timeouts | Divoom or the runner is having trouble | retry with backoff, then end the run; no strike |
 | `ReturnCode 11` with a stored token | token expired or replaced | log in again; no strike if that works |
 | Login refused | wrong password, or account disabled | strike |
-| Login accepted but the canary fails | account restricted | strike |
+| Login accepted, deep listing page empty | account capped to anonymous depth (seen 2026-10-09 after ~100k requests in 3 days) | retire at once; a spare takes the role in the same run |
+| Login accepted but a request is refused | account restricted | strike |
 | Canary passes, later requests fail in bulk | throttling | slow down, end the run, no strike |
 
 ## Self-healing
 
 ```
 account ok ──strike──► 1 strike ──strike──► 2 strikes ──strike──► status "bad"
+     │                                                                │
+     └──────────────── capped (login ok, deep page empty) ────────────┤
                                                                       │
-                                   promote the spare to this role ◄───┘
+                                   promote a spare to this role ◄─────┘
                                                 │
                               no spare left?    ▼
-                    register a new account (at most one per 7 days)
+                    register a new account (at most one per 3 days)
                                                 │
                          open a GitHub issue describing what happened
+
+every successful start: fewer than 3 healthy spares? ──► register one (same 3-day cap)
 ```
 
-* **Rotation.** After three strikes in a row the account is marked `bad` and the spare
-  takes its role in the same run.
-* **Registration.** When the pool has no spare, the job calls `/UserRegister` (no email
-  verification is needed) with a generated address and a random 24-character password,
-  and adds the account to the file. `last_registration` enforces the cap of one new
-  account per 7 days.
+* **Rotation.** After three strikes in a row, or at once when a fresh login works but the
+  deep listing page is empty (the account was capped), the account is marked `bad` and a
+  spare takes its role in the same run.
+* **Registration.** The job calls `/UserRegister` (no email verification is needed) with a
+  generated address and a random 24-character password, and adds the account to the
+  file. `last_registration` enforces the cap of one new account per 3 days. Every job
+  that starts with a working account tops the pool up to three healthy spares, one
+  registration at a time; a spare is logged in once, to pass the canary, then left alone
+  until it takes a role. A refused registration, or a new account that fails the canary,
+  opens a GitHub issue and marks the run with an error annotation.
 * **Addresses.** `<random>@servoom.invalid`, set in the repository variable
   `ACCOUNT_EMAIL_DOMAIN`. `.invalid` is a reserved top-level domain that nobody can
   register, so no real mailbox can be hit. `/UserRegister` accepted it in a test on
