@@ -62,3 +62,13 @@ signals.
 
 Note: `out/` is kept local only (the repo's `.gitignore` excludes every `out/` folder, and
 the folder holds 2,000 third-party profiles, which should not be published).
+
+## Follow-up (same day): shareable page for a friend
+
+`pairs.py` fetched every bot artwork that shares its upload second with a regular user's
+artwork and compared the files: 19 pairs (11 Drew, 8 julycat) are byte-identical (same
+md5, same size, same title, same timestamp). `render_pairs.py` decodes the old 2018
+containers (type 3 raw RGB, type 4 raw frames, type 7 zlib-JSON with a base64 preview)
+that the servoom decoders do not handle, and `build_page.py` builds the page
+(`out/bots-page.html`, local only). Published as a private artifact:
+https://claude.ai/artifact/CK57mijyWMrHPHs7mM589h
