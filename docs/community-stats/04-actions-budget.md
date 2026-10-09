@@ -14,7 +14,7 @@ re-checked against GitHub's documentation on 2026-10-04. The other rows are from
 
 | Limit | Value | Effect on this design |
 |-------|-------|-----------------------|
-| Job run time | 6 hours | the daily snapshot takes about 2.5 hours and checkpoints, so a cancelled run resumes |
+| Job run time | 6 hours | the daily snapshot takes about 3.5 hours and checkpoints every 20 minutes, so a cancelled run resumes |
 | Concurrent jobs (Free plan) | 20 | at most two run at once (pulse and snapshot) |
 | Shortest cron interval | 5 minutes | not needed; hourly is used |
 | Schedule accuracy | runs start late under load, often 5 to 30 minutes, and can be dropped | flows use the real time between observations; cron minutes avoid :00 |

@@ -111,8 +111,9 @@ At 8 requests per second from 4 threads this is about 2.3 hours of polling, plus
 5 minutes to decode and hash the day's files. The server
 answered 12 per second without trouble during the October studies.
 
-The job writes a checkpoint to the private repository after each list, so a run that
-fails or is cancelled resumes where it stopped instead of starting over.
+The job writes a checkpoint to the private repository every 20 minutes, so a run that
+fails or is cancelled resumes from the last finished list instead of starting over. The
+first list alone (Default, 16x16) takes over an hour.
 
 Also run daily, without extra requests worth counting:
 
@@ -129,8 +130,9 @@ A manual trigger exists to rerun one after a long outage.
 
 * At most 8 requests per second for the snapshot and 4 for the pulse, from one account
   per job. The snapshot starts at an hour when uploads are lowest.
-* Exponential backoff on errors; a job that sees repeated HTTP errors stops instead of
-  retrying for an hour.
+* Exponential backoff on errors, capped at one minute between attempts. A job gives up
+  only after 15 minutes without a single good answer (`API_OUTAGE_SECONDS`); the earlier
+  limit of 40 consecutive failures ended a three-hour crawl on a one-minute server hiccup.
 * Read-only commands only. The collector never calls `AddWatch`, `GalleryLikeV2` or any
   other write command, so it adds nothing to the counters it measures.
 * Hourly cron minutes are offset from :00.

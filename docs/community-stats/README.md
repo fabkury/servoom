@@ -21,10 +21,10 @@ Implemented on 2026-10-05. The pipeline is the public repository
 `servoom-raw`; the pages are in `docs/public/stats/` here. Where the code differs from
 these documents, the code is right. Known differences:
 
-* **Light checkpointing in the snapshot.** The finished crawl is saved once (branch
-  `state-crawl` of the raw repository). A run started within six hours of a crawl that
-  never became a snapshot reuses it. A failure during the crawl itself still starts
-  over.
+* **Checkpointing in the snapshot.** The crawl is saved to branch `state-crawl` of the
+  raw repository every 20 minutes (the raw rows of the lists finished so far) and once
+  more when it is complete. A run started within six hours of a crawl that never became
+  a snapshot resumes from the last finished list, or reuses the finished crawl.
 * **State lives on branches** of the raw repository, `state-pulse` and `state-snap`,
   one per job, so the hourly and daily jobs never write the same file.
 * **Languages.** Titles and comments are classified by writing system (Latin, Chinese
