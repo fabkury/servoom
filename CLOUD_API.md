@@ -92,6 +92,8 @@ yet other states of the same list. Do not stop paging at the first old page, and
 read an artwork's absence from a listing as deletion. Counters inside listings are also
 refreshed in batches, roughly every half hour.
 
+**Pages past the end of a list may answer `ReturnCode 12`.** Since 2026-10-12 about 09:00 UTC, some of the servers behind `appin` answer a `GetCategoryFileListV2` window that lies beyond the end of a short list (for example `Classify 3`, `FileSize 64`, 34 items, `StartNum 121`) with `12` "Request data is null" instead of `ReturnCode 0` and an empty `FileList`; the same request to another server still answers `0`. Treat `12` on a listing page as an empty page, not as an outage: the statistics collector stopped at once on every hourly run for 29 hours before this was found.
+
 `FileListNum` is not a real total: it is `10000` on most listings and `1000` on cached
 ones. Rely on an empty page instead. With `FileSort=1` (popular) the order drifts between
 calls, so two adjacent windows fetched seconds apart can overlap by an item or two.
