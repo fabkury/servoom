@@ -33,6 +33,63 @@
   const main = document.querySelector('main');
   const page = document.body.dataset.page;
 
+  // ---- collection health ----------------------------------------------------
+  // Spans published by the pipeline (data/health/*.json): when each collector ran and how
+  // complete its readings were. A chart names the lane it draws from (o.src) and shades
+  // that lane's troubled spans. A lane whose last reading is older than STALE is extended
+  // with a 'stale' span up to now, so a stopped collector shows even though the site is
+  // only rebuilt when data changes.
+  const LANES = ['pulse', 'refresh', 'snapshot', 'catalog'];
+  const STALE = { pulse: 3 * 3600, refresh: 9 * 3600, snapshot: 3.5 * 86400, catalog: 3.5 * 86400 };
+  const H = { lanes: {}, state: 'ok', ready: false };
+  async function loadHealth() {
+    const [p, s] = await Promise.all(['health/pulse.json', 'health/snapshot.json'].map(J));
+    const now = Date.now() / 1000;
+    for (const l of LANES) {
+      const spans = ((l === 'pulse' || l === 'refresh') ? p : s)?.lanes?.[l]?.map((x) => ({ ...x })) || [];
+      const last = spans.at(-1);
+      if (last && now - last.b > STALE[l]) spans.push({ a: last.b, b: now, level: 'missing', why: 'stale' });
+      H.lanes[l] = spans;
+    }
+    H.ready = Boolean(p || s);
+    H.state = LANES.every((l) => !H.lanes[l].length || H.lanes[l].at(-1).level === 'ok') ? 'ok' : 'issues';
+  }
+  const T = (u) => new Date(u * 1000);
+  const spanText = (x) => `${timeFmt.format(T(x.a))} – ${timeFmt.format(T(x.b))}`;
+  const whyText = (x) => (has('q_' + x.why) ? L('q_' + x.why) : x.why)
+    .replace('{n}', fmt(x.days ?? x.hours ?? 0, 1)).replace('{unit}', L(x.days != null ? 'u_days' : 'u_hours'))
+    .replace('{p}', pct(x.share ?? x.reach ?? 0)).replace('{parts}', x.parts || '').replace('{date}', timeFmt.format(T(x.a)));
+  /** Band marks over the troubled spans of a lane within [x0, x1] (unix seconds), and a note
+      listing them. A chart without a time axis gets only a note, about the lane's present state. */
+  function quality(lane, x0, x1, timed) {
+    const all = H.lanes[lane] || [];
+    const bad = timed ? all.filter((x) => x.level !== 'ok' && x.b > x0 && x.a < x1).map((x) => ({ ...x, a: Math.max(x.a, x0), b: Math.min(x.b, x1) }))
+      : all.slice(-1).filter((x) => x.level !== 'ok');
+    if (!bad.length) return { marks: [], note: null };
+    const P = window.Plot;
+    const marks = timed ? ['missing', 'degraded'].map((lv) => { const d = bad.filter((x) => x.level === lv); return d.length ? P.rect(d, { x1: (x) => T(x.a), x2: (x) => T(x.b), className: 'band-' + lv, title: (x) => `${L('lv_' + x.level)}: ${whyText(x)}` }) : null; }).filter(Boolean) : [];
+    const list = bad.slice(-4).reverse();
+    const note = $('p', { class: 'quality ' + list[0].level }, $('strong', {}, (timed ? L('q_title') : L('q_now')) + ': '),
+      list.flatMap((x, i) => [i ? $('br') : null, timed ? `${spanText(x)}. ` : '', whyText(x)]));
+    return { marks, note };
+  }
+  /** The overview section: one lane per collector over the whole history, and the latest problems. */
+  function healthSection() {
+    const s = sec('s_health');
+    s.id = 'health';
+    const rows = LANES.flatMap((l) => (H.lanes[l] || []).map((x) => ({ ...x, lane: l, name: L('lane_' + l) })));
+    if (!H.ready || !rows.length) return wait(s);
+    const P = window.Plot;
+    const col = { ok: cssv('--c3'), degraded: cssv('--c4'), missing: cssv('--muted') };
+    s.append($('div', { class: 'legend' }, Object.keys(col).map((lv) => $('span', {}, $('i', { style: `background:${col[lv]}` }), L('lv_' + lv)))));
+    draw(s, Object.keys(col).map((lv) => P.rect(rows.filter((x) => x.level === lv), { x1: (d) => T(d.a), x2: (d) => T(d.b), y: 'name', fill: col[lv], insetTop: 5, insetBottom: 5,
+      title: (d) => `${d.name}\n${spanText(d)}\n${L('lv_' + d.level)}${d.why ? ': ' + whyText(d) : ''}` })),
+    { h: 34 * LANES.length + 40, ml: 150, x: { type: 'utc' }, y: { domain: LANES.map((l) => L('lane_' + l)), grid: false, tickFormat: (d) => d } });
+    const bad = rows.filter((x) => x.level !== 'ok').sort((a, b) => b.a - a.a).slice(0, 8);
+    if (bad.length) s.append($('ul', { class: 'issues' }, bad.map((x) => $('li', {}, $('b', {}, spanText(x)), ` · ${x.name} · ${L('lv_' + x.level)}. ${whyText(x)}`))));
+    else s.append($('p', { class: 'note' }, L('health_clean')));
+  }
+
   // ---- chrome ---------------------------------------------------------------
   const PAGES = ['index', 'rhythm', 'artwork', 'curation', 'sizes', 'artists', 'audience', 'topics', 'formats', 'popular', 'studies', 'history', 'methods'];
   function chrome(status) {
@@ -48,8 +105,12 @@
     const sub = $('nav', { class: 'sub', 'aria-label': L('n_stats') },
       PAGES.map((p) => $('a', { href: p === 'index' ? './' : p + '.html', class: (p === page || (page === 'artist' && p === 'artists')) ? 'on' : null }, L('p_' + p))));
     document.body.prepend(head, sub);
+    const defs = $('div');          // the hatch pattern the 'missing' bands are filled with (stats.css)
+    defs.innerHTML = '<svg class="defs" aria-hidden="true"><defs><pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="7" style="fill:var(--muted);fill-opacity:.12"/><rect width="2.5" height="7" style="fill:var(--muted);fill-opacity:.5"/></pattern></defs></svg>';
+    document.body.prepend(defs.firstChild);
     const foot = $('footer', {}, $('p', {}, L('unofficial')),
-      status ? $('p', {}, `${L('updated')} ${timeFmt.format(new Date(status.generated))}`) : null,
+      status ? $('p', {}, `${L('updated')} ${timeFmt.format(new Date(status.generated))}`,
+        H.ready ? [' · ', $('a', { class: 'health ' + H.state, href: './#health' }, L(H.state === 'ok' ? 'health_ok' : 'health_issues'))] : null) : null,
       $('p', {}, $('a', { href: 'methods.html' }, L('p_methods')), ' · ', $('a', { href: 'https://github.com/fabkury/servoom' }, 'GitHub')));
     document.body.append(foot);
   }
@@ -98,6 +159,12 @@
     const yf = o.pct ? (v) => pct(v, 1) : (v) => fmt(v, v < 10 ? 2 : 0);
     const marks = [P.ruleY([0], { stroke: cssv('--axis') })];
     if (o.shade) marks.unshift(P.rect([o.shade], { x1: (d) => d[0], x2: (d) => d[1], fill: cssv('--muted'), fillOpacity: 0.13 }));
+    // o.src: the collector this chart draws from; its troubled spans are shaded and listed
+    const timed = o.time === 'unix' || o.time === 'day';
+    let x0 = Infinity, x1 = -Infinity;
+    if (timed) for (const d of long) { x0 = Math.min(x0, +d.x); x1 = Math.max(x1, +d.x); }
+    const q = o.src ? quality(o.src, x0 / 1000, x1 / 1000 + (o.time === 'day' ? 86400 : 3600), timed) : null;
+    if (q) marks.unshift(...q.marks);
     if (o.stack) marks.push(P.areaY(long, { x: 'x', y: 'y', fill: 's', fillOpacity: 0.85, curve: 'step-after' }));
     else {
       marks.push(P.lineY(o.partial ? long.filter((d) => +d.x !== lastX) : long, { x: 'x', y: 'y', stroke: 's', strokeWidth: 2, curve: o.curve || 'linear' }));
@@ -106,6 +173,7 @@
     for (const e of (o.events || [])) marks.push(P.ruleX([X(e.date, 'day')], { stroke: cssv('--muted'), strokeDasharray: '2,3', title: `${e.kind}: ${e.label}` }));
     marks.push(P.tip(long, P.pointerX({ x: 'x', y: 'y', title: (d) => `${d.s}: ${yf(d.y)}\n${tipx(d)}${o.partial && +d.x === lastX ? `\n${L(o.partial)}` : ''}${d.avg > 1 ? `\n${L(o.time === 'unix' ? 'avg_hours' : 'avg_days').replace('{n}', d.avg)}` : ''}`, fill: cssv('--surface'), stroke: cssv('--line') })));
     draw(s, marks, { ...o, color, x: { type: o.time ? 'utc' : (o.xtype || undefined), ...(o.x || {}) }, yfmt: o.pct ? (d) => pct(d) : undefined });
+    if (q?.note) s.append(q.note);
   }
   /** Horizontal bars. rows: [{label, value, ...}] */
   function bars(s, rows, o = {}) {
@@ -192,20 +260,21 @@
         daily?.likers?.length >= 7 ? ['t_likers', fmt(lastOf(daily.likers)['30']), L('t_30d')] : null,   // needs a week of like events first
         daily?.catalog ? ['t_catalog', compact(daily.catalog.n), `${compact(daily.catalog.likes)} ${L('likes').toLowerCase()}`] : null,
       ]);
+      healthSection();
       const hrs = spread(hourly, 't', 'unix', ['people', 'auto', 'views'], (r) => r.hours);
       const flows = spread(daily?.flows, 'day', 'day', ['people', 'auto', 'unattributed'], (r) => r.hours / 24);
       let s = sec('s_hourly_likes', st?.last_pulse);
-      lines(s, hrs, 't', [['people', 'people', '--c1'], ['auto', 'automated', '--c2']], { time: 'unix', stack: true, min: 3 });
+      lines(s, hrs, 't', [['people', 'people', '--c1'], ['auto', 'automated', '--c2']], { time: 'unix', stack: true, min: 3, src: 'pulse' });
       s = sec('s_hourly_views');
-      lines(s, hrs, 't', [['views', 'views', '--c3']], { time: 'unix', min: 3 });
+      lines(s, hrs, 't', [['views', 'views', '--c3']], { time: 'unix', min: 3, src: 'pulse' });
       s = sec('s_daily_flows', dst?.snapshot);
-      lines(s, flows, 'day', [['people', 'people', '--c1'], ['auto', 'automated', '--c2'], ['unattributed', 'unattributed', '--c6']], { time: 'day', stack: true, events: ev });
+      lines(s, flows, 'day', [['people', 'people', '--c1'], ['auto', 'automated', '--c2'], ['unattributed', 'unattributed', '--c6']], { time: 'day', stack: true, events: ev, src: 'snapshot' });
       s = sec('s_uploads_day');
-      lines(s, daily?.uploads?.slice(0, -1), 'day', [['n', 'uploads', '--c1']], { time: 'day', events: ev });
+      lines(s, daily?.uploads?.slice(0, -1), 'day', [['n', 'uploads', '--c1']], { time: 'day', events: ev, src: 'snapshot' });
       s = sec('s_uploads_all', st?.generated);
-      lines(s, ua?.days?.slice(1), 'day', [['public', 'k_public', '--c1'], ['private', 'k_private', '--c5'], ['held', 'k_held', '--c4'], ['removed', 'k_removed', '--c2']], { time: 'day', stack: true });
+      lines(s, ua?.days?.slice(1), 'day', [['public', 'k_public', '--c1'], ['private', 'k_private', '--c5'], ['held', 'k_held', '--c4'], ['removed', 'k_removed', '--c2']], { time: 'day', stack: true, src: 'refresh' });
       s = sec('s_signups');
-      lines(s, su?.series, 't', [['per_day', 'signups_day', '--c3']], { time: 'unix', events: ev });
+      lines(s, su?.series, 't', [['per_day', 'signups_day', '--c3']], { time: 'unix', events: ev, src: 'refresh' });
       s = sec('s_status');
       table(s, [['k', 'item'], ['v', 'value']], [
         { k: L('st_pulse'), v: st ? timeFmt.format(new Date(st.last_pulse)) : '–' },
@@ -241,14 +310,14 @@
       const hours = (rows) => rows.filter((r) => r.b < 168).map((r) => ({ ...r, age: r.b / 24 }));
       const wide = (by, field) => { const m = new Map(); for (const r of hours((curves || []).filter((c) => c.by === by && c.n >= 30))) { if (!m.has(r.age)) m.set(r.age, { age: r.age }); m.get(r.age)[r.key] = r[field]; } return [...m.values()].sort((a, b) => a.age - b.age); };
       let s = sec('s_curve_tier');
-      lines(s, wide('tier', 'people'), 'age', [['rec', 'tier_rec', '--c2'], ['new', 'tier_new', '--c1'], ['none', 'tier_none', '--c6']], { xtype: 'linear', min: 6, x: { label: L('age_days') } });
+      lines(s, wide('tier', 'people'), 'age', [['rec', 'tier_rec', '--c2'], ['new', 'tier_new', '--c1'], ['none', 'tier_none', '--c6']], { xtype: 'linear', min: 6, x: { label: L('age_days') }, src: 'pulse' });
       s = sec('s_curve_views');
-      lines(s, wide('tier', 'views'), 'age', [['rec', 'tier_rec', '--c2'], ['new', 'tier_new', '--c1'], ['none', 'tier_none', '--c6']], { xtype: 'linear', min: 6, x: { label: L('age_days') } });
+      lines(s, wide('tier', 'views'), 'age', [['rec', 'tier_rec', '--c2'], ['new', 'tier_new', '--c1'], ['none', 'tier_none', '--c6']], { xtype: 'linear', min: 6, x: { label: L('age_days') }, src: 'pulse' });
       s = sec('s_curve_size');
-      lines(s, wide('size', 'people'), 'age', sizeSeries, { xtype: 'linear', min: 6, x: { label: L('age_days') } });
+      lines(s, wide('size', 'people'), 'age', sizeSeries, { xtype: 'linear', min: 6, x: { label: L('age_days') }, src: 'pulse' });
       s = sec('s_long');
       const days = (curves || []).filter((c) => c.by === 'all' && c.b >= 168 && c.n >= 30).map((r) => ({ age: r.b - 168 + 7, people: r.people * 24, views: r.views * 24 }));
-      lines(s, days, 'age', [['people', 'people', '--c1']], { xtype: 'linear', min: 4, x: { label: L('age_days') } });
+      lines(s, days, 'age', [['people', 'people', '--c1']], { xtype: 'linear', min: 4, x: { label: L('age_days') }, src: 'pulse' });
       s = sec('s_backcat');
       const ba = daily?.by_age; const cat = daily?.catalog_by_age;
       if (ba?.length) { const last = ba.filter((r) => r.day === ba[ba.length - 1].day);
@@ -264,11 +333,11 @@
       const [promo, cur] = await Promise.all(['pulse/promo.json', 'daily/curation.json'].map(J));
       let s = sec('s_promo_day');
       const pd = new Map(); for (const r of (promo?.per_day || [])) { if (!pd.has(r.day)) pd.set(r.day, { day: r.day }); pd.get(r.day)[r.kind] = r.n; }
-      lines(s, [...pd.values()], 'day', [['rec', 'tier_rec', '--c2'], ['new', 'tier_new', '--c1']], { time: 'day' });
+      lines(s, [...pd.values()], 'day', [['rec', 'tier_rec', '--c2'], ['new', 'tier_new', '--c1']], { time: 'day', src: 'pulse' });
       s = sec('s_odds');
-      lines(s, bySize((cur?.by_month || []).filter((r) => r.n >= 30), 'rec', 'm'), 'm', sizeSeries, { time: 'month', pct: true });
+      lines(s, bySize((cur?.by_month || []).filter((r) => r.n >= 30), 'rec', 'm'), 'm', sizeSeries, { time: 'month', pct: true, src: 'catalog' });
       s = sec('s_odds_new');
-      lines(s, bySize((cur?.by_month || []).filter((r) => r.n >= 30), 'new', 'm'), 'm', sizeSeries, { time: 'month', pct: true });
+      lines(s, bySize((cur?.by_month || []).filter((r) => r.n >= 30), 'new', 'm'), 'm', sizeSeries, { time: 'month', pct: true, src: 'catalog' });
       s = sec('s_odds_cat');
       table(s, [['category', 'category'], ['n', 'uploads', fmt], ['new', 'reach_new', (v) => pct(v)], ['rec', 'reach_rec', (v) => pct(v)]], cur?.by_category?.sort((a, b) => b.n - a.n));
       s = sec('s_delay');
@@ -276,9 +345,9 @@
       s = sec('s_effect');
       const after = (promo?.after || []).filter((r) => r.n >= 10 && r.rel < 72);
       if (promo?.before && after.length > 6) s.append($('p', { class: 'note' }, `${L('before_rate')}: ${fmt(promo.before.likes_per_hour, 2)} ${L('likes_h')}, ${fmt(promo.before.views_per_hour, 1)} ${L('views_h')} (n=${fmt(promo.before.n)})`));
-      lines(s, after, 'rel', [['people', 'people', '--c1'], ['likes', 'raw_likes', '--c6']], { xtype: 'linear', min: 6, x: { label: L('hours_after') } });
+      lines(s, after, 'rel', [['people', 'people', '--c1'], ['likes', 'raw_likes', '--c6']], { xtype: 'linear', min: 6, x: { label: L('hours_after') }, src: 'pulse' });
       s = sec('s_refiled');
-      lines(s, spread(cur?.per_day, 'day', 'day', ['refiled'], (r) => r.days), 'day', [['refiled', 'refiled', '--c4']], { time: 'day' });
+      lines(s, spread(cur?.per_day, 'day', 'day', ['refiled'], (r) => r.days), 'day', [['refiled', 'refiled', '--c4']], { time: 'day', src: 'snapshot' });
     },
 
     async sizes() {
@@ -295,15 +364,15 @@
         sz?.mature?.sort((a, b) => SIZE_ORDER.indexOf(a.size) - SIZE_ORDER.indexOf(b.size)));
       const co = (sz?.cohorts || []).filter((r) => r.n >= 30);
       s = sec('s_size_uploads');
-      lines(s, bySize(co, 'n', 'm'), 'm', sizeSeries, { time: 'month' });
+      lines(s, bySize(co, 'n', 'm'), 'm', sizeSeries, { time: 'month', src: 'catalog' });
       s = sec('s_size_likes');
-      lines(s, bySize(co, 'like_med', 'm'), 'm', sizeSeries, { time: 'month' });
+      lines(s, bySize(co, 'like_med', 'm'), 'm', sizeSeries, { time: 'month', src: 'catalog' });
       s = sec('s_photo');
-      lines(s, bySize(co, 'photo', 'm'), 'm', sizeSeries, { time: 'month', pct: true });
+      lines(s, bySize(co, 'photo', 'm'), 'm', sizeSeries, { time: 'month', pct: true, src: 'catalog' });
       s = sec('s_features');
       const all = new Map(); for (const r of co) { const a = all.get(r.m) || { m: r.m, n: 0, layer: 0, music: 0, ai: 0 }; a.n += r.n; a.layer += r.layer * r.n; a.music += r.music * r.n; a.ai += r.ai * r.n; all.set(r.m, a); }
       lines(s, [...all.values()].sort((a, b) => a.m.localeCompare(b.m)).map((a) => ({ m: a.m, layer: a.layer / a.n, music: a.music / a.n, ai: a.ai / a.n })), 'm',
-        [['layer', 'f_layer', '--c1'], ['music', 'f_music', '--c3'], ['ai', 'f_ai', '--c5']], { time: 'month', pct: true });
+        [['layer', 'f_layer', '--c1'], ['music', 'f_music', '--c3'], ['ai', 'f_ai', '--c5']], { time: 'month', pct: true, src: 'catalog' });
     },
 
     async artists() {
@@ -323,9 +392,9 @@
       const c1 = meth?.concentration?.top1?.slice(-1)[0]?.[''], c10 = meth?.concentration?.top10?.slice(-1)[0]?.[''];
       if (c1 != null) bars(s, [{ label: L('top1'), value: c1 }, { label: L('top10'), value: c10 }], { pct: true, keep: true, ml: 150 }); else wait(s);
       s = sec('s_retention');
-      lines(s, ret?.cohorts?.filter((r) => r.n >= 30).slice(0, -3), 'm', [['again30', 'again30', '--c1'], ['again90', 'again90', '--c3']], { time: 'month', pct: true });
+      lines(s, ret?.cohorts?.filter((r) => r.n >= 30).slice(0, -3), 'm', [['again30', 'again30', '--c1'], ['again90', 'again90', '--c3']], { time: 'month', pct: true, src: 'catalog' });
       s = sec('s_new_uploaders');
-      lines(s, ret?.cohorts?.slice(0, -1), 'm', [['n', 'new_uploaders', '--c1']], { time: 'month' });
+      lines(s, ret?.cohorts?.slice(0, -1), 'm', [['n', 'new_uploaders', '--c1']], { time: 'month', src: 'catalog' });
       s = sec('s_countries');
       bars(s, Object.entries(cc?.uploaders_365d || {}).slice(0, 15).map(([k, v]) => ({ label: k, value: v / cc.n })), { pct: true, ml: 60 });
       s = sec('s_score');
@@ -342,7 +411,7 @@
       // The tiles count the 365 days before the snapshot; the monthly charts go further back and shade that window.
       const now = new Date(idx.generated);
       const months = fillMonths(a?.months, idx.generated.slice(0, 7), ['n', 'picks', 'likes', 'views']);
-      const mo = { time: 'month', partial: 'month_partial' };
+      const mo = { time: 'month', partial: 'month_partial', src: 'catalog' };
       if (months?.length > 1) mo.shade = [new Date(Math.max(now - 365 * 864e5, X(months[0].m, 'month'))), X(months.at(-1).m, 'month')];
       const monthly = (key, series) => {
         const s = sec(key);
@@ -353,19 +422,19 @@
       monthly('s_a_likes', [['likes', 'raw_likes', '--c1']]);
       let s;
       s = sec('s_a_fans');
-      lines(s, a?.daily, 'day', [['fans', 'followers', '--c3']], { time: 'day', min: 3 });
+      lines(s, a?.daily, 'day', [['fans', 'followers', '--c3']], { time: 'day', min: 3, src: 'snapshot' });
       s = sec('s_a_daily');
-      lines(s, spread(a?.daily, 'day', 'day', ['dlp_day', 'dl_day'], (r) => r.days), 'day', [['dlp_day', 'people', '--c1'], ['dl_day', 'raw_likes', '--c6']], { time: 'day', min: 3 });
+      lines(s, spread(a?.daily, 'day', 'day', ['dlp_day', 'dl_day'], (r) => r.days), 'day', [['dlp_day', 'people', '--c1'], ['dl_day', 'raw_likes', '--c6']], { time: 'day', min: 3, src: 'snapshot' });
     },
 
     async audience() {
       const [au, su, fu, cm] = await Promise.all(['daily/audience.json', 'pulse/signups.json', 'daily/funnel.json', 'pulse/comments.json'].map(J));
       let s = sec('s_likers');
-      lines(s, au?.likers, 'day', [['1', 'd1', '--c1'], ['7', 'd7', '--c3'], ['30', 'd30', '--c5']], { time: 'day' });
+      lines(s, au?.likers, 'day', [['1', 'd1', '--c1'], ['7', 'd7', '--c3'], ['30', 'd30', '--c5']], { time: 'day', src: 'snapshot' });
       s = sec('s_likers_new');
-      lines(s, spread(au?.new_likers, 'day', 'day', [''], (r) => r.days), 'day', [['', 'new_likers', '--c1']], { time: 'day' });
+      lines(s, spread(au?.new_likers, 'day', 'day', [''], (r) => r.days), 'day', [['', 'new_likers', '--c1']], { time: 'day', src: 'snapshot' });
       s = sec('s_returning');
-      lines(s, au?.returning, 'day', [['', 'returning', '--c1']], { time: 'day', pct: true });
+      lines(s, au?.returning, 'day', [['', 'returning', '--c1']], { time: 'day', pct: true, src: 'snapshot' });
       s = sec('s_who_likes');
       const one = (a) => a?.slice(-1)[0]?.[''];
       if (one(au?.uploader_share) != null) bars(s, [{ label: L('likers_are_uploaders'), value: one(au.uploader_share) }, { label: L('likes_from_uploaders'), value: one(au.likes_by_uploaders) }, { label: L('likes_top1'), value: one(au.top1pct) }, one(au.reciprocity) != null ? { label: L('reciprocity'), value: one(au.reciprocity) } : null].filter(Boolean), { pct: true, keep: true, ml: 230 }); else wait(s);
@@ -378,7 +447,7 @@
       const cc = su?.countries || {}; const tot = Object.values(cc).reduce((x, y) => x + y, 0);
       bars(s, tot >= 50 ? Object.entries(cc).slice(0, 15).map(([k, v]) => ({ label: k, value: v / tot })) : null, { pct: true, ml: 60 });
       s = sec('s_comments');
-      lines(s, cm?.days, 'day', [['people', 'people', '--c1'], ['auto', 'automated', '--c2']], { time: 'day', stack: true });
+      lines(s, cm?.days, 'day', [['people', 'people', '--c1'], ['auto', 'automated', '--c2']], { time: 'day', stack: true, src: 'refresh' });
       s = sec('s_comment_scripts');
       const sc = cm?.scripts || {}; const st = Object.values(sc).reduce((x, y) => x + y, 0);
       bars(s, st >= 30 ? Object.entries(sc).map(([k, v]) => ({ label: L('sc_' + k), value: v / st })) : null, { pct: true, ml: 120 });
@@ -392,7 +461,7 @@
       s = sec('s_tags_30');
       table(s, tagCols, tg?.top_30d, { max: 30 });
       s = sec('s_remix');
-      lines(s, rx?.by_month?.filter((r) => r.n >= 100), 'm', [['remix', 'remix_share', '--c1']], { time: 'month', pct: true });
+      lines(s, rx?.by_month?.filter((r) => r.n >= 100), 'm', [['remix', 'remix_share', '--c1']], { time: 'month', pct: true, src: 'catalog' });
       s = sec('s_most_remixed');
       table(s, [['artist', 'artist'], ['gid', 'artwork_id'], ['remixes', 'remixes', fmt], ['like', 'raw_likes', fmt]], rx?.most_remixed?.filter((r) => r.remixes >= 2));
       s = sec('s_dedications');
@@ -400,7 +469,7 @@
       s = sec('s_scripts');
       const sm = new Map(); for (const r of (rx?.title_scripts || [])) { if (!sm.has(r.m)) sm.set(r.m, { m: r.m, tot: 0 }); const o = sm.get(r.m); o[r.script] = r.n; o.tot += r.n; }
       const ss = [...sm.values()].sort((a, b) => a.m.localeCompare(b.m)).map((o) => ({ m: o.m, latin: (o.latin || 0) / o.tot, han: (o.han || 0) / o.tot, kana: (o.kana || 0) / o.tot, cyrillic: (o.cyrillic || 0) / o.tot, hangul: (o.hangul || 0) / o.tot }));
-      lines(s, ss, 'm', [['latin', 'sc_latin', '--c1'], ['han', 'sc_han', '--c2'], ['kana', 'sc_kana', '--c3'], ['cyrillic', 'sc_cyrillic', '--c4'], ['hangul', 'sc_hangul', '--c5']], { time: 'month', pct: true });
+      lines(s, ss, 'm', [['latin', 'sc_latin', '--c1'], ['han', 'sc_han', '--c2'], ['kana', 'sc_kana', '--c3'], ['cyrillic', 'sc_cyrillic', '--c4'], ['hangul', 'sc_hangul', '--c5']], { time: 'month', pct: true, src: 'catalog' });
       s = sec('s_categories');
       const log = cats?.log || [];
       if (log.length) { const last = log[log.length - 1], first = log[0]; const dd = Math.max(1, (last.t - first.t) / 86400);
@@ -414,9 +483,9 @@
     async formats() {
       const f = await J('daily/formats.json');
       let s = sec('s_anim');
-      lines(s, f?.per_day?.map((r) => ({ day: r.day, anim: r.anim / r.n, layer: r.layer / r.n, music: r.music / r.n })), 'day', [['anim', 'animated', '--c1'], ['layer', 'f_layer', '--c3'], ['music', 'f_music', '--c5']], { time: 'day', pct: true, min: 3 });
+      lines(s, f?.per_day?.map((r) => ({ day: r.day, anim: r.anim / r.n, layer: r.layer / r.n, music: r.music / r.n })), 'day', [['anim', 'animated', '--c1'], ['layer', 'f_layer', '--c3'], ['music', 'f_music', '--c5']], { time: 'day', pct: true, min: 3, src: 'snapshot' });
       s = sec('s_dups');
-      lines(s, f?.per_day?.map((r) => ({ day: r.day, other: r.dup_other / r.n, self: r.dup_self / r.n, near: r.near_other / r.n })), 'day', [['other', 'dup_other', '--c2'], ['near', 'dup_near', '--c4'], ['self', 'dup_self', '--c6']], { time: 'day', pct: true, min: 3 });
+      lines(s, f?.per_day?.map((r) => ({ day: r.day, other: r.dup_other / r.n, self: r.dup_self / r.n, near: r.near_other / r.n })), 'day', [['other', 'dup_other', '--c2'], ['near', 'dup_near', '--c4'], ['self', 'dup_self', '--c6']], { time: 'day', pct: true, min: 3, src: 'snapshot' });
       s = sec('s_containers');
       table(s, [['fmt', 'container'], [(r) => `${r.size}×${r.size}`, 'canvas'], ['n', 'files', fmt], [(r) => r.anim / r.n, 'animated', pct], [(r) => r.decoded ? r.frames / r.decoded : null, 'avg_frames', (v) => fmt(v, 1)], [(r) => r.decoded ? r.colors / r.decoded : null, 'avg_colors', (v) => fmt(v)], [(r) => r.bytes / r.n / 1024, 'avg_kb', (v) => fmt(v, 1)]],
         f?.by_format?.sort((a, b) => b.n - a.n));
@@ -451,11 +520,11 @@
       const h = await J('daily/history.json');
       if (h?.measured_from) main.append($('p', { class: 'note' }, `${L('hist_intro')} ${h.measured_from}.`));
       let s = sec('s_h_uploads');
-      lines(s, bySize(h?.uploads || [], 'n', 'm').slice(0, -1), 'm', sizeSeries, { time: 'month', stack: true });
+      lines(s, bySize(h?.uploads || [], 'n', 'm').slice(0, -1), 'm', sizeSeries, { time: 'month', stack: true, src: 'catalog' });
       s = sec('s_h_signups');
-      lines(s, h?.signups?.filter((r) => r.m >= '2018-06').slice(0, -1), 'm', [['accounts', 'accounts', '--c3']], { time: 'month' });
+      lines(s, h?.signups?.filter((r) => r.m >= '2018-06').slice(0, -1), 'm', [['accounts', 'accounts', '--c3']], { time: 'month', src: 'catalog' });
       s = sec('s_h_rec');
-      lines(s, h?.rec_picks?.slice(0, -1), 'm', [['n', 'tier_rec', '--c2']], { time: 'month' });
+      lines(s, h?.rec_picks?.slice(0, -1), 'm', [['n', 'tier_rec', '--c2']], { time: 'month', src: 'catalog' });
       s = sec('s_h_years');
       table(s, [['y', 'upload_year'], ['n', 'artworks', fmt], ['likes', 'raw_likes', fmt], ['views', 'views', fmt], [(r) => r.likes / r.n, 'likes_per_artwork', (v) => fmt(v, 1)], ['auto_share_oct2026', 'auto_share', (v) => pct(v, 1)]], h?.by_upload_year);
     },
@@ -464,22 +533,24 @@
       const [st, dst, daily, meth] = await Promise.all(['pulse/status.json', 'daily/status.json', 'daily/daily.json', 'daily/methods.json'].map(J));
       let s = sec('s_m_what'); text(s, 'm_what');
       s = sec('s_m_people'); text(s, 'm_people');
-      lines(s, spread(daily?.flows, 'day', 'day', ['likes', 'people'], (r) => r.hours / 24), 'day', [['likes', 'raw_likes', '--c6'], ['people', 'people', '--c1']], { time: 'day' });
+      lines(s, spread(daily?.flows, 'day', 'day', ['likes', 'people'], (r) => r.hours / 24), 'day', [['likes', 'raw_likes', '--c6'], ['people', 'people', '--c1']], { time: 'day', src: 'snapshot' });
       table(s, [['r', 'id_range']], (st?.automated_ranges || meth?.ranges || []).map(([lo, hi, par]) => ({ r: `${fmt(lo)} – ${fmt(hi)}${par === 0 ? ' · ' + L('even_ids') : par === 1 ? ' · ' + L('odd_ids') : ''}` })));
       if (meth?.tracked_likes) s.append($('p', { class: 'note' }, `${L('tracked')}: ${fmt(meth.tracked_likes.people)} ${L('people').toLowerCase()}, ${fmt(meth.tracked_likes.automated)} ${L('automated').toLowerCase()}`));
       s = sec('s_m_how'); for (const k of ['m_how1', 'm_how2', 'm_how3']) text(s, k);
       s = sec('s_m_privacy'); for (const k of ['m_priv1', 'm_priv2']) text(s, k);
-      s = sec('s_m_limits'); for (const k of ['m_lim1', 'm_lim2', 'm_lim3']) text(s, k);
+      s = sec('s_m_limits'); for (const k of ['m_lim1', 'm_lim2', 'm_lim3', 'm_lim4']) text(s, k);
       s = sec('s_status');
       table(s, [['k', 'item'], ['v', 'value']], [
         { k: L('st_pulse'), v: st ? timeFmt.format(new Date(st.last_pulse)) : '–' }, { k: L('st_snapshot'), v: dst ? timeFmt.format(new Date(dst.snapshot)) : '–' },
         { k: L('st_mode'), v: st ? L(st.mode === 'normal' ? 'mode_normal' : 'mode_degraded') : '–' },
+        { k: L('st_health'), v: H.ready ? $('a', { href: './#health' }, L(H.state === 'ok' ? 'health_ok' : 'health_issues')) : '–' },
         { k: L('st_warnings'), v: dst?.warnings?.length ? dst.warnings.join(', ') : L('none') }]);
     },
   };
 
   (async () => {
     const status = await J('pulse/status.json') || await J('daily/status.json');
+    await loadHealth();
     chrome(status);
     if (page !== 'artist') main.append($('h1', {}, L('p_' + page)), has('p_' + page + '_n') ? $('p', { class: 'lede' }, L('p_' + page + '_n')) : null);
     if (!status) { main.append($('div', { class: 'wait' }, L('no_data'))); return; }

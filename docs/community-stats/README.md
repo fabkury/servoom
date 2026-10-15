@@ -43,6 +43,15 @@ these documents, the code is right. Known differences:
   gone. Upload counts for affected days can still read low until the listings recover.
 * **Listing counters lag.** Like and view counters in listings refresh in batches,
   roughly every 15 to 30 minutes, so hourly figures can be shifted by that much.
+* **Collection health is first-class (2026-10-15).** Every run logs one row on its state
+  branch, and `stats/health.py` derives, from the run logs and the rollups alone, when
+  each collector (hourly pulse, 4-hour refresh, snapshot, catalog reach) was healthy,
+  degraded or missing. The site draws the lanes on the overview page, shades the
+  troubled spans on every chart that depends on that collector, lists the reason under
+  the chart, and the footer links to the section. Nothing is typed in by hand, so a hole
+  in the data is marked whether or not anyone noticed it. The depth cap of 2026-10-10
+  shows as the catalog lane degraded ("only 22% of the catalog could be read") from
+  that date on.
 * **Not built:** the monthly workflow re-enable step (daily commits keep the schedules
   alive), and yearly compaction of old raw files.
 
