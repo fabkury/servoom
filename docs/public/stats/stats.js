@@ -155,7 +155,7 @@
     const lastX = xs.at(-1), prevX = xs.at(-2) ?? lastX;
     legend(s, series);
     const color = { domain: series.map(([, l]) => lab(l)), range: series.map(([, , c]) => cssv(c)) };
-    const tipx = (d) => o.time ? (o.time === 'unix' ? timeFmt : dateFmt).format(d.x) : String(d.x);
+    const tipx = (d) => o.xf ? o.xf(d.x) : o.time ? (o.time === 'unix' ? timeFmt : dateFmt).format(d.x) : String(d.x);
     const yf = o.pct ? (v) => pct(v, 1) : (v) => fmt(v, v < 10 ? 2 : 0);
     const marks = [P.ruleY([0], { stroke: cssv('--axis') })];
     if (o.shade) marks.unshift(P.rect([o.shade], { x1: (d) => d[0], x2: (d) => d[1], fill: cssv('--muted'), fillOpacity: 0.13 }));
@@ -170,6 +170,9 @@
       marks.push(P.lineY(o.partial ? long.filter((d) => +d.x !== lastX) : long, { x: 'x', y: 'y', stroke: 's', strokeWidth: 2, curve: o.curve || 'linear' }));
       if (o.partial) marks.push(P.lineY(long.filter((d) => +d.x >= prevX), { x: 'x', y: 'y', stroke: 's', strokeWidth: 2, strokeDasharray: '4,4' }));
     }
+    // o.ref: [{y, label}] dashed horizontal reference lines, labelled at the right edge
+    for (const r of (o.ref || [])) marks.push(P.ruleY([r.y], { stroke: cssv('--muted'), strokeDasharray: '5,4' }),
+      P.text([r], { x: () => o.x?.domain?.[1] ?? Math.max(...long.map((d) => +d.x)), y: 'y', text: 'label', dy: -7, textAnchor: 'end', fill: cssv('--muted'), fontSize: 11 }));
     for (const e of (o.events || [])) marks.push(P.ruleX([X(e.date, 'day')], { stroke: cssv('--muted'), strokeDasharray: '2,3', title: `${e.kind}: ${e.label}` }));
     marks.push(P.tip(long, P.pointerX({ x: 'x', y: 'y', title: (d) => `${d.s}: ${yf(d.y)}\n${tipx(d)}${o.partial && +d.x === lastX ? `\n${L(o.partial)}` : ''}${d.avg > 1 ? `\n${L(o.time === 'unix' ? 'avg_hours' : 'avg_days').replace('{n}', d.avg)}` : ''}`, fill: cssv('--surface'), stroke: cssv('--line') })));
     draw(s, marks, { ...o, color, x: { type: o.time ? 'utc' : (o.xtype || undefined), ...(o.x || {}) }, yfmt: o.pct ? (d) => pct(d) : undefined });
@@ -343,9 +346,23 @@
       s = sec('s_delay');
       table(s, [[(r) => L(r.kind === 'rec' ? 'tier_rec' : 'tier_new'), 'tier'], ['count', 'n', fmt], ['25%', 'q25', (v) => fmt(v, 1)], ['50%', 'median', (v) => fmt(v, 1)], ['75%', 'q75', (v) => fmt(v, 1)], ['90%', 'q90', (v) => fmt(v, 1)]], promo?.delay?.filter((r) => r.count >= 5));
       s = sec('s_effect');
-      const after = (promo?.after || []).filter((r) => r.n >= 10 && r.rel < 72);
-      if (promo?.before && after.length > 6) s.append($('p', { class: 'note' }, `${L('before_rate')}: ${fmt(promo.before.likes_per_hour, 2)} ${L('likes_h')}, ${fmt(promo.before.views_per_hour, 1)} ${L('views_h')} (n=${fmt(promo.before.n)})`));
-      lines(s, after, 'rel', [['people', 'people', '--c1'], ['likes', 'raw_likes', '--c6']], { xtype: 'linear', min: 6, x: { label: L('hours_after') }, src: 'pulse' });
+      // The first hour after a pick dwarfs everything after it, so it is a figure, not a point; the tail is re-binned into 6-hour windows.
+      const after = (promo?.after || []).filter((r) => r.rel < 72);
+      const burst = after.find((r) => r.rel === 0);
+      if (burst && burst.n >= 10) s.append($('p', { class: 'note' }, L('first_hour').replace('{l}', fmt(burst.likes, 1)).replace('{p}', fmt(burst.people, 1)).replace('{v}', fmt(burst.views, 0)).replace('{n}', fmt(burst.n))));
+      if (promo?.before) s.append($('p', { class: 'note' }, `${L('before_rate')}: ${fmt(promo.before.likes_per_hour, 2)} ${L('likes_h')}, ${fmt(promo.before.views_per_hour, 1)} ${L('views_h')} (n=${fmt(promo.before.n)})`));
+      const W = 6, tail = [];
+      for (let a = 1; a < 72; a += W) {
+        const part = after.filter((r) => r.rel >= a && r.rel < a + W), n = sum(part, 'n');
+        if (n < 10) continue;
+        const w = (r) => r.hrs ?? r.n, tot = part.reduce((t, r) => t + w(r), 0);
+        const avg = (k) => part.reduce((t, r) => t + r[k] * w(r), 0) / tot;
+        tail.push({ x: a + (W - 1) / 2, a, b: Math.min(a + W - 1, 71), n, likes: avg('likes'), people: avg('people'), views: avg('views') });
+      }
+      const xo = { xtype: 'linear', min: 4, x: { label: L('hours_after'), domain: [0, 72] }, xf: (x) => { const r = tail.find((t) => t.x === x); return r ? L('hours_range').replace('{a}', r.a).replace('{b}', r.b) : String(x); }, src: 'pulse' };
+      lines(s, tail, 'x', [['people', 'people', '--c1'], ['likes', 'raw_likes', '--c6']], { ...xo, ref: promo?.before ? [{ y: promo.before.likes_per_hour, label: L('before_pick') }] : [] });
+      s = sec('s_effect_views');
+      lines(s, tail, 'x', [['views', 'views', '--c3']], { ...xo, ref: promo?.before ? [{ y: promo.before.views_per_hour, label: L('before_pick') }] : [] });
       s = sec('s_refiled');
       lines(s, spread(cur?.per_day, 'day', 'day', ['refiled'], (r) => r.days), 'day', [['refiled', 'refiled', '--c4']], { time: 'day', src: 'snapshot' });
     },
