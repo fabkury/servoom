@@ -88,11 +88,11 @@ saturation +96 / lightness -96).
 
 The sliders are **applied at render time** by the Android app (3.8.40): the stored bitmap
 is the un-adjusted paint, and every painted (non-black) pixel of the layer goes through
-an integer HSL adjustment before it is blended (§4). Of 34 corpus files with HSL layers
-(lossy 16px artworks excluded), 18 reproduce the flattened artwork only when the sliders
-are applied (most of them exactly), 7 only when they are *ignored* -- their bitmaps were
-already baked by whichever client saved them while the slider values were kept -- and 9
-are mixed. The
+an integer HSL adjustment before it is blended (§4). Only *painted* (non-black) pixels
+are adjusted: a transparent pixel must not light up when the lightness slider is raised.
+With that rule, 33 of the 34 corpus files with HSL layers (lossy 16px artworks excluded)
+reproduce the flattened artwork, and ignoring the sliders breaks every one of them; the
+remaining file disagrees either way (its artwork is probably from an older save). The
 decoders follow the Android app (apply), expose the values (`hue`, `saturation`,
 `lightness`), and the PSD export appends `_hue<h>_sat<s>_lit<l>` to the layer name when
 any of the three is non-zero.

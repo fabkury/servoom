@@ -15,6 +15,7 @@
  * code does, and parity is the contract). */
 #include "decoders/decoders.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "util/bytes.h"
@@ -435,12 +436,19 @@ typedef struct {
 static servoom_status fl_push(framelist *fl, const uint8_t *frame)
 {
     if (fl->n == fl->cap) {
+        /* `frame` may point into fl->data itself (fl_push_fallback duplicates the previous
+         * frame); keep it as an offset across the realloc or it dangles. */
+        size_t inside = SIZE_MAX;
+        if (fl->data && frame >= fl->data && frame < fl->data + (size_t)fl->n * fl->frame_size)
+            inside = (size_t)(frame - fl->data);
         int ncap = fl->cap ? fl->cap * 2 : 16;
         uint8_t *p = (uint8_t *)realloc(fl->data, (size_t)ncap * fl->frame_size + 1);
         if (!p)
             return SERVOOM_ERR_NOMEM;
         fl->data = p;
         fl->cap = ncap;
+        if (inside != SIZE_MAX)
+            frame = fl->data + inside;
     }
     memcpy(fl->data + (size_t)fl->n * fl->frame_size, frame, fl->frame_size);
     fl->n++;

@@ -141,6 +141,14 @@ def test_composite_applies_hsl_and_truncates():
     expected = np.trunc(adjusted.astype(np.float32) * np.float32(128 / 255.0)).astype(np.uint8)
     assert comp[9, 9].tolist() == expected.tolist()
     assert comp[3, 3].tolist() == [200, 10, 10]   # layer 0 untouched (neutral sliders)
+    # transparent (black) source pixels never go through the sliders: lightness +100 on a
+    # layer must not light up its empty area (this once painted whole frames white)
+    frames = [[(False, 255), (False, 255, 0, 0, 100)]]
+    layer = LayerFileDecoder.decode_bytes(_build_0x27(frames, [l0, l1]))
+    comp = layer.composite_frame(0)
+    assert comp[0, 0].tolist() == [0, 0, 0]
+    assert comp[3, 3].tolist() == [200, 10, 10]
+    assert comp[9, 9].tolist() == [255, 255, 255]
     # a pixel the sliders turn black is transparent: lightness -100 on l1 leaves l0's red
     frames = [[(False, 255), (False, 255, 0, 0, -100)]]
     overlap = l0.copy(); overlap[2:6, 2:6] = (10, 200, 10)   # green over red area

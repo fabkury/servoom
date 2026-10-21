@@ -215,13 +215,23 @@ class LayerBean(object):
         for layer, meta in zip(layers, metas):
             if meta["hidden"]:
                 continue
-            if meta.get("hue", 0) or meta.get("saturation", 0) or meta.get("lightness", 0):
-                layer = adjust_hsl(layer, meta["hue"], meta["saturation"], meta["lightness"])
-            mask = np.any(layer != 0, axis=2)  # non-black pixels are painted
+            mask = np.any(layer != 0, axis=2)  # non-black SOURCE pixels are painted
             if not mask.any():
                 continue
+            painted = layer[mask]
+            if meta.get("hue", 0) or meta.get("saturation", 0) or meta.get("lightness", 0):
+                # Only painted pixels go through the sliders (a transparent pixel must not
+                # turn into a lit one); a pixel that comes out black is transparent too.
+                painted = adjust_hsl(painted, meta["hue"], meta["saturation"], meta["lightness"])
+                still = np.any(painted != 0, axis=1)
+                idx = np.flatnonzero(mask.ravel())[still]
+                mask = np.zeros(mask.shape, dtype=bool)
+                mask.ravel()[idx] = True
+                painted = painted[still]
+                if not len(painted):
+                    continue
             alpha = np.float32(meta["opacity"] / 255.0)
-            src = layer[mask].astype(np.float32) * alpha
+            src = painted.astype(np.float32) * alpha
             dst = canvas[mask].astype(np.float32) * (np.float32(1.0) - alpha)
             canvas[mask] = np.trunc(src + dst).astype(np.uint8)
         return canvas
