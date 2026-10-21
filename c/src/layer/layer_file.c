@@ -81,14 +81,15 @@ static servoom_status parse_layer_table(const uint8_t *table, size_t tlen, servo
             return SERVOOM_ERR_NOMEM;
         bean->num_frames++;
         for (int i = 0; i < num_layers; i++) {
-            /* Python slices the descriptor (clamped) and reads desc[0]/desc[1]: a short
-             * slice raises IndexError -> decode fails. */
-            if (tlen - pos < 2)
+            /* Python raises on a short descriptor ('truncated inside a layer descriptor'). */
+            if (tlen - pos < DESCRIPTOR_SIZE)
                 return SERVOOM_ERR_CORRUPT;
-            size_t have = tlen - pos < DESCRIPTOR_SIZE ? tlen - pos : DESCRIPTOR_SIZE;
-            memcpy(fr->layers[i].descriptor, table + pos, have);
+            memcpy(fr->layers[i].descriptor, table + pos, DESCRIPTOR_SIZE);
             fr->layers[i].hidden = table[pos] != 0;
             fr->layers[i].opacity = table[pos + 1];
+            fr->layers[i].hue = (int)(((unsigned)table[pos + 2] << 8) | table[pos + 3]) - 180;
+            fr->layers[i].saturation = (int)table[pos + 4] - 100;
+            fr->layers[i].lightness = (int)table[pos + 5] - 100;
             pos += DESCRIPTOR_SIZE;
         }
         bean->total_layers += num_layers;
@@ -126,11 +127,35 @@ servoom_status servoom_layer_decode_memory(const uint8_t *data, size_t len, serv
     }
 
     if (bean->format == SERVOOM_LAYER_FORMAT_RAW_RGB) {
+        /* One or more C|U|zstd streams: the writer starts a new one every ~10 MB of raw
+         * bitmaps (cut at frame boundaries). Concatenate them all. */
         uint8_t *pix = NULL;
-        size_t plen = 0, next = 0;
-        st = read_zstd_stream(data, len, pos, &pix, &plen, &next);
-        if (st != SERVOOM_OK)
+        size_t plen = 0;
+        while (pos + 8 <= len) {
+            uint8_t *chunk = NULL;
+            size_t clen = 0, next = 0;
+            st = read_zstd_stream(data, len, pos, &chunk, &clen, &next);
+            if (st != SERVOOM_OK) {
+                free(pix);
+                goto fail;
+            }
+            uint8_t *grown = (uint8_t *)realloc(pix, plen + clen ? plen + clen : 1);
+            if (!grown) {
+                free(pix);
+                free(chunk);
+                st = SERVOOM_ERR_NOMEM;
+                goto fail;
+            }
+            pix = grown;
+            memcpy(pix + plen, chunk, clen);
+            plen += clen;
+            free(chunk);
+            pos = next;
+        }
+        if (!pix) {
+            st = SERVOOM_ERR_CORRUPT;
             goto fail;
+        }
         double side_f = sqrt((double)plen / (3.0 * bean->total_layers));
         int side = (int)floor(side_f + 0.5); /* round() of a positive number */
         if ((size_t)side * side * 3 * (size_t)bean->total_layers != plen) {
@@ -213,38 +238,113 @@ const uint8_t *servoom_layer_bitmap(const servoom_layer_bean *bean, int frame, i
     return bean->bitmaps + stride * (size_t)(fr->first_layer + layer);
 }
 
+/* The editor's integer HSL pipeline (single precision, truncating), see
+ * LAYER_FILE_FORMAT.md section 4. Kept bit-for-bit like the Python reference. */
+static float sv_hue_to_channel(float p, float q, float t)
+{
+    if (t < 0.0f)
+        t += 1.0f;
+    if (t > 1.0f)
+        t -= 1.0f;
+    double d = t;
+    if (d < 1.0 / 6.0)
+        return p + (q - p) * 6.0f * t;
+    if (d < 0.5)
+        return q;
+    if (d < 2.0 / 3.0)
+        return (float)((double)p + (double)(q - p) * (2.0 / 3.0 - d) * 6.0);
+    return p;
+}
+
+static void sv_adjust_hsl(uint8_t *px, int hue, int sat, int lit)
+{
+    float r = px[0] / 255.0f, g = px[1] / 255.0f, b = px[2] / 255.0f;
+    float mx = fmaxf(fmaxf(r, g), b), mn = fminf(fminf(r, g), b);
+    float sum = mx + mn, l = sum / 2.0f, h = 0.0f, s = 0.0f;
+    if (mx != mn) {
+        float d = mx - mn;
+        float denom = ((double)l > 0.5) ? (2.0f - mx) - mn : sum;
+        s = d / denom;
+        if (mx == r)
+            h = (g - b) / d + (g < b ? 6.0f : 0.0f);
+        else if (mx == g)
+            h = (b - r) / d + 2.0f;
+        else
+            h = (r - g) / d + 4.0f;
+        h /= 6.0f;
+    }
+    int hi = (int)(h * 360.0f), si = (int)(s * 100.0f), li = (int)(l * 100.0f);
+    if (hue != 0) {
+        hi += hue;
+        if (hi >= 360)
+            hi -= 360;
+        if (hi < 0)
+            hi += 360;
+    }
+    if (si != 0) {
+        if (sat < 0)
+            si = (int)((double)si + (double)si * ((double)sat / 100.0));
+        else if (sat > 0)
+            si += sat;
+    }
+    if (lit < 0)
+        li = (int)((double)li + (double)li * ((double)lit / 100.0));
+    else if (lit > 0)
+        li += lit;
+    if (si > 100)
+        si = 100;
+    if (si < 0)
+        si = 0;
+    if (li > 100)
+        li = 100;
+    if (li < 0)
+        li = 0;
+    float hf = (float)((double)hi / 360.0);
+    float sf = (float)((double)si / 100.0);
+    float lf = (float)((double)li / 100.0);
+    if (sf == 0.0f) {
+        int v = (int)(lf * 255.0f);
+        px[0] = px[1] = px[2] = (uint8_t)v;
+        return;
+    }
+    float q = ((double)lf < 0.5) ? (sf + 1.0f) * lf : (lf + sf) - sf * lf;
+    float p = lf * 2.0f - q;
+    double hd = hf;
+    px[0] = (uint8_t)(int)(sv_hue_to_channel(p, q, (float)(hd + 1.0 / 3.0)) * 255.0f);
+    px[1] = (uint8_t)(int)(sv_hue_to_channel(p, q, hf) * 255.0f);
+    px[2] = (uint8_t)(int)(sv_hue_to_channel(p, q, (float)(hd - 1.0 / 3.0)) * 255.0f);
+}
+
 servoom_status servoom_layer_composite_frame(const servoom_layer_bean *bean, int frame, uint8_t *out_rgb)
 {
     if (!bean || !out_rgb || frame < 0 || frame >= bean->num_frames)
         return SERVOOM_ERR_ARG;
     size_t npx = (size_t)bean->width * bean->height;
-    double *canvas = (double *)calloc(npx ? npx * 3 : 1, sizeof(double));
-    if (!canvas)
-        return SERVOOM_ERR_NOMEM;
+    memset(out_rgb, 0, npx * 3); /* black canvas */
     const servoom_layer_frame *fr = &bean->frames[frame];
     for (int li = 0; li < fr->num_layers; li++) {
         const servoom_layer_meta *m = &fr->layers[li];
         if (m->hidden)
             continue;
-        double alpha = m->opacity / 255.0;
+        int hsl = m->hue != 0 || m->saturation != 0 || m->lightness != 0;
+        float a = (float)(m->opacity / 255.0);
+        float ia = 1.0f - a;
         const uint8_t *layer = servoom_layer_bitmap(bean, frame, li);
         for (size_t p = 0; p < npx; p++) {
-            const uint8_t *px = layer + p * 3;
+            uint8_t px[3] = {layer[p * 3], layer[p * 3 + 1], layer[p * 3 + 2]};
             if (px[0] == 0 && px[1] == 0 && px[2] == 0)
                 continue; /* black = transparent */
-            for (int ch = 0; ch < 3; ch++)
-                canvas[p * 3 + ch] = (double)px[ch] * alpha + canvas[p * 3 + ch] * (1.0 - alpha);
+            if (hsl)
+                sv_adjust_hsl(px, m->hue, m->saturation, m->lightness);
+            if (px[0] == 0 && px[1] == 0 && px[2] == 0)
+                continue; /* became black through the sliders: transparent too */
+            for (int ch = 0; ch < 3; ch++) {
+                float src = (float)px[ch] * a;
+                float dst = (float)out_rgb[p * 3 + ch] * ia;
+                out_rgb[p * 3 + ch] = (uint8_t)(int)(src + dst); /* truncation, like the app */
+            }
         }
     }
-    for (size_t i = 0; i < npx * 3; i++) {
-        double v = nearbyint(canvas[i]); /* numpy round: half to even */
-        if (v < 0)
-            v = 0;
-        if (v > 255)
-            v = 255;
-        out_rgb[i] = (uint8_t)v;
-    }
-    free(canvas);
     return SERVOOM_OK;
 }
 

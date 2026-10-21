@@ -211,8 +211,12 @@ def _layer_table(frames) -> bytes:
     b = bytearray()
     for layers in frames:
         b += bytes([len(layers), 0])
-        for hidden, opacity in layers:
-            b += bytes([1 if hidden else 0, opacity, 0, 0xB4, 0x64, 0x64])
+        for spec in layers:
+            hidden, opacity = spec[0], spec[1]
+            hue, sat, lit = spec[2:5] if len(spec) > 2 else (0, 0, 0)
+            # descriptor: hidden, opacity, uint16 BE hue+180, saturation+100, lightness+100
+            b += bytes([1 if hidden else 0, opacity]) + struct.pack(">H", hue + 180)
+            b += bytes([sat + 100, lit + 100])
     return bytes(b)
 
 
@@ -225,7 +229,9 @@ SIDE = 16
 l0 = np.zeros((SIDE, SIDE, 3), np.uint8); l0[2:6, 2:6] = (200, 10, 10)
 l1 = np.zeros((SIDE, SIDE, 3), np.uint8); l1[8:12, 8:12] = (10, 200, 10)
 l2 = np.zeros((SIDE, SIDE, 3), np.uint8); l2[4:10, 4:10] = (10, 10, 200)
-frames_meta = [[(False, 255), (True, 128)], [(False, 200), (False, 77)]]
+# frame 1's top layer carries HSL sliders (hue -30, saturation +10, lightness -5) so the C
+# composite is checked against the Python reference for the render-time adjustment too.
+frames_meta = [[(False, 255), (True, 128)], [(False, 200), (False, 77, -30, 10, -5)]]
 layers = [l0, l1, l1, l2]
 raw27 = bytes([0x27]) + _zstd_stream(_layer_table(frames_meta)) + _zstd_stream(b"".join(l.tobytes() for l in layers))
 raw28 = bytearray([0x28]) + _zstd_stream(_layer_table(frames_meta))

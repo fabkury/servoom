@@ -13,10 +13,12 @@ zstd stream) and differ only in how the layer bitmaps are stored (big-endian int
     stream 0 (both):   uint32 C | uint32 U | bytes[C]  -- one zstd frame -> U bytes
                        = the LAYER TABLE
 
-* **layer table**: for each animation frame ``uint8 num_layers``, ``uint8 flag``
-  (unconfirmed; likely the editor's active-layer index), then ``num_layers`` x 6-byte
-  descriptors where ``byte[0]`` is the HIDDEN flag (nonzero => layer hidden, excluded from
-  the composite) and ``byte[1]`` is the layer OPACITY (0-255). ``K`` = sum of ``num_layers``.
+* **layer table**: for each animation frame ``uint8 num_layers``, ``uint8 active_layer``
+  (the editor's last selected layer index), then ``num_layers`` x 6-byte descriptors:
+  ``byte[0]`` HIDDEN flag (nonzero => layer hidden, excluded from the composite),
+  ``byte[1]`` OPACITY (0-255), ``uint16 BE [2:4]`` = hue + 180 (-180..180),
+  ``byte[4]`` = saturation + 100 and ``byte[5]`` = lightness + 100 (-100..100) -- the
+  editor's per-layer HSL slider positions. ``K`` = sum of ``num_layers``.
 
 * **pixels, format 0x27**: a *second* length-prefixed zstd stream holding ``K`` layer
   bitmaps, each ``side*side*3`` bytes of raw 24-bit RGB, frame-major (bottom -> top). The
@@ -26,7 +28,9 @@ zstd stream) and differ only in how the layer bitmaps are stored (big-endian int
   transparent, same as 0x27). ``side`` comes from the WEBP dimensions.
 
 Compositing (matches the app): the colour black ``(0,0,0)`` is transparent; layers are
-painted bottom -> top over a black canvas and alpha-blended with ``opacity/255``.
+painted bottom -> top over a black canvas, a layer's HSL sliders are applied to its painted
+pixels first (:func:`adjust_hsl`), then each is alpha-blended with ``opacity/255`` in single
+precision and truncated, like the Android editor.
 
 See ``layer-tools/LAYER_FILE_FORMAT.md`` for the full reverse-engineering write-up.
 """
@@ -51,6 +55,96 @@ SUPPORTED_FORMATS = (FORMAT_RAW_RGB, FORMAT_WEBP)
 FORMAT_ID = FORMAT_RAW_RGB  # backwards-compatible alias
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 DESCRIPTOR_SIZE = 6
+
+
+def adjust_hsl(rgb: np.ndarray, hue: int, saturation: int, lightness: int) -> np.ndarray:
+    """Apply a layer's Hue/Saturation/Lightness sliders to an ``(..., 3)`` uint8 bitmap.
+
+    Reproduces the editor's integer HSL pipeline so composites match the app's render:
+
+    * RGB -> HSL in single precision, quantised to ``h`` 0..359, ``s`` 0..100, ``l`` 0..100
+      by truncation;
+    * ``h += hue`` (wrapped into 0..359); a negative ``saturation`` / ``lightness`` scales
+      ``s`` / ``l`` by ``1 + v/100`` (truncated), a positive one is added; ``s`` is only
+      changed when it was non-zero; both are clamped to 0..100;
+    * HSL -> RGB in single precision, each channel truncated to 0..255.
+
+    Black pixels are transparent and never adjusted; the caller masks them. A pixel can
+    *become* black (lightness -100) and is then treated as transparent by the blend.
+    """
+    f32 = np.float32
+    shape = rgb.shape
+    px = rgb.reshape(-1, 3).astype(f32) / f32(255.0)
+    r, g, b = px[:, 0], px[:, 1], px[:, 2]
+    mx = np.maximum(np.maximum(r, g), b)
+    mn = np.minimum(np.minimum(r, g), b)
+    summ = mx + mn
+    l_f = summ / f32(2.0)
+    d = mx - mn
+    chroma = d != 0
+    denom = np.where(l_f.astype(np.float64) > 0.5, (f32(2.0) - mx) - mn, summ).astype(f32)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        s_f = np.where(chroma, d / denom, f32(0.0)).astype(f32)
+        h_r = (g - b) / d + np.where(g < b, f32(6.0), f32(0.0))
+        h_g = (b - r) / d + f32(2.0)
+        h_b = (r - g) / d + f32(4.0)
+    h_f = np.where(mx == r, h_r, np.where(mx == g, h_g, h_b)).astype(f32) / f32(6.0)
+    h_f = np.where(chroma, h_f, f32(0.0)).astype(f32)
+    h = np.trunc(h_f * f32(360.0)).astype(np.int32)
+    s = np.trunc(s_f * f32(100.0)).astype(np.int32)
+    lv = np.trunc(l_f * f32(100.0)).astype(np.int32)
+
+    if hue:
+        h = h + hue
+        h = np.where(h >= 360, h - 360, h)
+        h = np.where(h < 0, h + 360, h)
+    if saturation < 0:
+        s = np.where(s != 0, np.trunc(s + s * (saturation / 100.0)).astype(np.int32), s)
+    elif saturation > 0:
+        s = np.where(s != 0, s + saturation, s)
+    if lightness < 0:
+        lv = np.trunc(lv + lv * (lightness / 100.0)).astype(np.int32)
+    elif lightness > 0:
+        lv = lv + lightness
+    s = np.clip(s, 0, 100)
+    lv = np.clip(lv, 0, 100)
+
+    hf = (h / 360.0).astype(f32)
+    sf = (s / 100.0).astype(f32)
+    lf = (lv / 100.0).astype(f32)
+    q = np.where(lf.astype(np.float64) < 0.5, (sf + f32(1.0)) * lf, (lf + sf) - sf * lf).astype(f32)
+    p = lf * f32(2.0) - q
+
+    def hue_to_channel(t: np.ndarray) -> np.ndarray:
+        t = t.astype(f32)
+        t = np.where(t < 0, t + f32(1.0), t).astype(f32)
+        t = np.where(t > 1, t - f32(1.0), t).astype(f32)
+        td = t.astype(np.float64)
+        seg1 = p + (q - p) * f32(6.0) * t
+        seg3 = (p.astype(np.float64) + (q - p).astype(np.float64) * (2.0 / 3.0 - td) * 6.0).astype(f32)
+        return np.where(td < 1.0 / 6.0, seg1,
+                        np.where(td < 0.5, q, np.where(td < 2.0 / 3.0, seg3, p))).astype(f32)
+
+    hd = hf.astype(np.float64)
+    r_out = hue_to_channel((hd + 1.0 / 3.0).astype(f32))
+    g_out = hue_to_channel(hf)
+    b_out = hue_to_channel((hd - 1.0 / 3.0).astype(f32))
+    gray = np.trunc(lf * f32(255.0))
+    out = np.stack([
+        np.where(sf == 0, gray, np.trunc(r_out * f32(255.0))),
+        np.where(sf == 0, gray, np.trunc(g_out * f32(255.0))),
+        np.where(sf == 0, gray, np.trunc(b_out * f32(255.0))),
+    ], axis=1)
+    return np.clip(out, 0, 255).astype(np.uint8).reshape(shape)
+
+
+def hsl_name_tag(meta: Dict) -> str:
+    """PSD layer-name suffix for a layer's HSL sliders: ``_hue-30_sat10_lit0`` (all three,
+    only when at least one is non-neutral) or ``""`` when all are 0."""
+    hue, sat, lit = meta.get("hue", 0), meta.get("saturation", 0), meta.get("lightness", 0)
+    if hue == 0 and sat == 0 and lit == 0:
+        return ""
+    return f"_hue{hue}_sat{sat}_lit{lit}"
 
 
 class LayerBean(object):
@@ -106,20 +200,31 @@ class LayerBean(object):
 
     # -- compositing --------------------------------------------------------
     def composite_frame(self, frame: int) -> np.ndarray:
-        """Alpha-composite ``frame`` (black = transparent, bottom -> top) to ``(H, W, 3)``.
+        """Composite ``frame`` the way the Divoom editor renders it, to ``(H, W, 3)``.
 
-        Layers flagged hidden (descriptor ``byte[0]`` nonzero) are skipped.
+        Bottom -> top: hidden layers are skipped; a layer whose HSL sliders are not all
+        zero has every painted (non-black) pixel adjusted first (:func:`adjust_hsl`); then
+        each painted pixel is blended over the canvas with ``alpha = opacity/255`` in
+        single-precision arithmetic and truncated to an integer, like the app. Black
+        ``(0,0,0)`` -- also a pixel that *became* black through the sliders -- is
+        transparent and leaves the canvas untouched.
         """
         layers = self._frame_layers[frame]
         metas = self._frames_meta[frame]["layers"]
-        canvas = np.zeros((self._height, self._width, 3), dtype=float)
+        canvas = np.zeros((self._height, self._width, 3), dtype=np.uint8)
         for layer, meta in zip(layers, metas):
             if meta["hidden"]:
                 continue
-            alpha = meta["opacity"] / 255.0
+            if meta.get("hue", 0) or meta.get("saturation", 0) or meta.get("lightness", 0):
+                layer = adjust_hsl(layer, meta["hue"], meta["saturation"], meta["lightness"])
             mask = np.any(layer != 0, axis=2)  # non-black pixels are painted
-            canvas[mask] = layer[mask].astype(float) * alpha + canvas[mask] * (1.0 - alpha)
-        return np.clip(np.round(canvas), 0, 255).astype(np.uint8)
+            if not mask.any():
+                continue
+            alpha = np.float32(meta["opacity"] / 255.0)
+            src = layer[mask].astype(np.float32) * alpha
+            dst = canvas[mask].astype(np.float32) * (np.float32(1.0) - alpha)
+            canvas[mask] = np.trunc(src + dst).astype(np.uint8)
+        return canvas
 
     def to_pixel_bean(self, metadata: Optional[Dict] = None, speed: int = 100) -> PixelBean:
         """Composite all frames into a ``PixelBean`` (COMPLETE) reusing its export helpers."""
@@ -190,6 +295,15 @@ class LayerBean(object):
             # Divoom treats black (0,0,0) as transparent -> derive an alpha channel.
             if alpha is None:
                 alpha = (np.any(rgb != 0, axis=2).astype(np.uint8)) * 255
+            if not alpha.any():
+                # pytoshop silently DROPS a layer whose alpha is all zero, which would lose
+                # an empty Divoom layer (and shift layer indices). Write it as a 0x0 layer
+                # with constant channels instead: still listed, still transparent.
+                return nested_layers.Image(
+                    name=name, visible=visible, opacity=opacity,
+                    top=0, left=0, bottom=0, right=0,
+                    channels={0: 0, 1: 0, 2: 0, -1: 255}, color_mode=enums.ColorMode.rgb,
+                )
             channels = {
                 0: np.ascontiguousarray(rgb[:, :, 0]),
                 1: np.ascontiguousarray(rgb[:, :, 1]),
@@ -214,8 +328,8 @@ class LayerBean(object):
             items = [_image_layer(f"f{f:03d}_bg", black, 255, True, alpha=opaque)]
             for li, meta in enumerate(self._frames_meta[f]["layers"]):
                 rgb = self._frame_layers[f][li]
-                tag = "_HIDDEN" if meta["hidden"] else ""
-                name = f"f{f:03d}_l{li:02d}_op{meta['opacity']:03d}{tag}"
+                name = f"f{f:03d}_l{li:02d}_op{meta['opacity']:03d}{hsl_name_tag(meta)}"
+                name += "_HIDDEN" if meta["hidden"] else ""
                 items.append(_image_layer(name, rgb, meta["opacity"], not meta["hidden"]))
             group_visible = True if all_frames_visible else (f == 0)
             groups.append(nested_layers.Group(
@@ -304,8 +418,16 @@ class LayerFileDecoder(object):
 
     @staticmethod
     def _bitmaps_from_raw_rgb(data: bytes, pos: int, total_layers: int) -> Tuple[np.ndarray, int]:
-        """0x27 pixels: a single zstd stream of ``K`` raw 24-bit RGB bitmaps."""
-        pixel_bytes, _ = LayerFileDecoder._read_zstd_stream(data, pos)
+        """0x27 pixels: one or more zstd streams of raw 24-bit RGB bitmaps (``K`` in all).
+
+        The writer starts a new ``C | U | zstd`` stream every ~10 MB of raw bitmaps (cut at
+        frame boundaries); small files have exactly one.
+        """
+        chunks = []
+        while pos + 8 <= len(data):
+            chunk, pos = LayerFileDecoder._read_zstd_stream(data, pos)
+            chunks.append(chunk)
+        pixel_bytes = b"".join(chunks)
         # Recover the square canvas side from the pixel-stream length.
         side = int(round(math.sqrt(len(pixel_bytes) / (3 * total_layers))))
         if side * side * 3 * total_layers != len(pixel_bytes):
@@ -351,12 +473,19 @@ class LayerFileDecoder(object):
             for _ in range(num_layers):
                 desc = table[pos: pos + DESCRIPTOR_SIZE]
                 pos += DESCRIPTOR_SIZE
+                if len(desc) < DESCRIPTOR_SIZE:
+                    raise ValueError("Layer table truncated inside a layer descriptor")
                 layers.append({
                     "hidden": desc[0] != 0,   # byte[0]: nonzero => layer hidden
                     "opacity": desc[1],       # byte[1]: 0-255
+                    # Editor HSL sliders, stored offset so they fit unsigned bytes.
+                    "hue": unpack(">H", desc[2:4])[0] - 180,   # -180..180
+                    "saturation": desc[4] - 100,               # -100..100
+                    "lightness": desc[5] - 100,                # -100..100
                     "descriptor": desc.hex(),
                 })
-            frames.append({"num_layers": num_layers, "flag": flag, "layers": layers})
+            frames.append({"num_layers": num_layers, "flag": flag,
+                           "active_layer": flag, "layers": layers})
         if pos != len(table):
             raise ValueError(
                 f"Layer table did not consume stream 0 exactly ({pos} != {len(table)})"

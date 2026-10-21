@@ -50,12 +50,13 @@ stream is exhausted:
 ```
 per frame:
     uint8  num_layers        number of layers in this frame
-    uint8  flag              unconfirmed (see below)
+    uint8  active_layer      index of the layer last selected in the editor (0-based)
     num_layers x 6-byte layer descriptor:
-        byte[0]  HIDDEN       nonzero => layer hidden (skip it)  <-- CONFIRMED
-        byte[1]  OPACITY      0..255                             <-- CONFIRMED
-        byte[2]              unknown (usually 0x00, not always)
-        byte[3..5]           near-constant, typically B4 64 64; unknown / reserved
+        byte[0]  HIDDEN       nonzero => layer hidden (skip it)
+        byte[1]  OPACITY      0..255
+        uint16   HUE + 180    big-endian; hue slider -180..180  (neutral 0x00B4)
+        byte[4]  SAT + 100    saturation slider -100..100       (neutral 0x64)
+        byte[5]  LIT + 100    lightness slider  -100..100       (neutral 0x64)
 ```
 
 Cross-checks that all passed on the full sample:
@@ -64,25 +65,37 @@ Cross-checks that all passed on the full sample:
 * `sum(num_layers)` over all frames **== K**, the number of bitmaps in stream 1;
 * the parse consumes stream 0 **exactly** (no leftover bytes).
 
-**`flag` byte** takes values 0..8 in the sample and is not yet pinned down; it correlates
-loosely with layer count / a selected index, so it is most likely the editor's
-**active-layer index** for that frame. Not needed for decoding.
+**`active_layer`** (previously "flag") is the index of the layer that was selected in the
+editor when the file was saved; it takes values 0..8 in the sample and is irrelevant for
+rendering. Writers may emit 0.
 
 **Descriptor byte [0] = hidden flag** (CONFIRMED): nonzero means the layer is hidden in
 the editor and must be **excluded** from the composite. Only 7 of 1814 layers in the
-sample are hidden (`0x01`), all in pair-01 (4) and pair-03 (3). Skipping them makes both
-pairs reconstruct exactly and regresses nothing (every other file has zero hidden
-layers). This was found because pair-01's first frame showed extra pixels that were
-absent from the rendered artwork.
+first sample were hidden (`0x01`), all in pair-01 (4) and pair-03 (3). Skipping them
+makes both pairs reconstruct exactly and regresses nothing. This was found because
+pair-01's first frame showed extra pixels that were absent from the rendered artwork.
 
 **Descriptor byte [1] = opacity** is confirmed empirically (see §5): using it as an
 alpha value is what makes multi-layer frames reconstruct. Values observed: 0, 6, 26, 28,
 … 227, 233, 255. `0` = fully transparent layer; `255` = fully opaque.
 
-The remaining descriptor bytes vary only slightly across the whole sample
-(`byte[3:6]` ∈ {b46464, 4f6464, b46483, b46475, 646464}); their meaning is still open
-(candidates: layer id, blend mode, name/thumbnail hash). They do **not** affect the
-composite in any case we tested.
+**Descriptor bytes [2:6] = the layer's HSL sliders** (resolved 2026-10-21). The editor's
+per-layer Hue / Saturation / Lightness adjustment is remembered as three offset
+integers: hue + 180 as a big-endian `uint16`, saturation + 100 and lightness + 100 as
+single bytes, so the neutral descriptor tail is `00 B4 64 64`. About one layer in ten in
+the wild carries a non-neutral value (e.g. `01 68 64 64` = hue +180, `00 B4 C4 04` =
+saturation +96 / lightness -96).
+
+The sliders are **applied at render time** by the Android app (3.8.40): the stored bitmap
+is the un-adjusted paint, and every painted (non-black) pixel of the layer goes through
+an integer HSL adjustment before it is blended (§4). Of 34 corpus files with HSL layers
+(lossy 16px artworks excluded), 18 reproduce the flattened artwork only when the sliders
+are applied (most of them exactly), 7 only when they are *ignored* -- their bitmaps were
+already baked by whichever client saved them while the slider values were kept -- and 9
+are mixed. The
+decoders follow the Android app (apply), expose the values (`hue`, `saturation`,
+`lightness`), and the PSD export appends `_hue<h>_sat<s>_lit<l>` to the layer name when
+any of the three is non-zero.
 
 ---
 
@@ -108,15 +121,25 @@ dimensions. Same black-as-transparent convention (no alpha channel is used).
 
 * **Black `(0,0,0)` is transparent.** (Confirmed by the user; visible in the data — e.g.
   empty background layers are entirely `(0,0,0)`.)
-* Layers are painted **bottom → top** over a black canvas.
-* Each layer is **alpha-blended** with `alpha = opacity / 255`:
+* Layers are painted **bottom → top** over a black canvas; hidden layers are skipped.
+* If a layer's HSL sliders are not all zero, each painted pixel is first adjusted
+  (single-precision RGB→HSL quantised to `h` 0..359 / `s`,`l` 0..100 by truncation;
+  `h += hue` wrapped; a negative saturation/lightness scales `s`/`l` by `1 + v/100`
+  (truncated), a positive one is added, `s` only when it was non-zero; clamp to 0..100;
+  HSL→RGB, each channel truncated to 0..255). A pixel that becomes black is transparent.
+* Each painted pixel is then **alpha-blended** with `alpha = opacity / 255` in single
+  precision and **truncated** (not rounded) to an integer canvas value:
 
 ```
 for each layer L (bottom -> top) with opacity op:
-    a = op / 255
-    for each pixel p where L[p] != (0,0,0):     # non-black = painted
-        canvas[p] = round( L[p]*a + canvas[p]*(1-a) )
+    a = float32(op / 255)
+    for each pixel p where L[p] != (0,0,0):     # non-black = painted (after HSL)
+        canvas[p] = trunc( float32(L[p]*a) + float32(canvas[p]*(1-a)) )
 ```
+
+With this rule frames without HSL layers reproduce the flattened artwork **exactly**
+(mean error 0.001 over 35 corpus files whose artwork decoder is lossless), where the
+earlier round-to-nearest blend left a ±1 residual.
 
 ---
 
@@ -162,7 +185,7 @@ The finalized decoders built from these findings:
   In the PSD, each frame is a group (`frameNNN`) whose bottom-most layer is an opaque
   black background (`fNNN_bg`): black is the chroma key, so pixels transparent in every
   layer must still render black, as in the app. Above it come the Divoom layers
-  (`fNNN_lLL_opOOO[_HIDDEN]`) with black mapped to alpha 0.
+  (`fNNN_lLL_opOOO[_hueH_satS_litL][_HIDDEN]`) with black mapped to alpha 0.
 * `docs/src/lib/layerFile.ts` — the same decode + PSD export in the browser (used by the
   web app at servoom.pages.dev); produces the same layer structure.
 * `layer-tools/divoom_layer_decoder.py` — self-contained CLI (needs only the `.dat`;
@@ -178,9 +201,12 @@ The finalized decoders built from these findings:
 
 ## 7. Open questions / next steps
 
-1. Descriptor bytes [2] and [3:6] and the record `flag` byte — semantics unknown.
-   (byte[0]=hidden and byte[1]=opacity are confirmed.) Capture files where these vary
-   (change one layer's blend mode / name / order in the app and diff) to pin them down.
+1. ~~Descriptor bytes [2:6] and the per-frame flag~~ — resolved (§2): HSL sliders and
+   the active-layer index. The 0x28 per-record flag byte selects the record codec:
+   `0` = lossless WEBP (the only value seen in the wild); nonzero = a zstd frame whose
+   uncompressed size is one layer bitmap. A 0x27 pixel section may also hold **several**
+   consecutive `C | U | zstd` streams (the writer starts a new one every ~10 MB of raw
+   bitmaps, cutting only at frame boundaries); every file sampled so far fits in one.
 2. Ground-truth colours: validate pair-09/19 against an actual app/web render rather than
    the format-9 artwork decoder.
 3. Frame duration/speed: **not** present in the layer file (header speed bytes are 0);

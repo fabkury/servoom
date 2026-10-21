@@ -16,18 +16,21 @@
 extern "C" {
 #endif
 
-#define SERVOOM_LAYER_FORMAT_RAW_RGB 0x27 /* pixels: one zstd stream of raw RGB bitmaps */
+#define SERVOOM_LAYER_FORMAT_RAW_RGB 0x27 /* pixels: zstd stream(s) of raw RGB bitmaps */
 #define SERVOOM_LAYER_FORMAT_WEBP    0x28 /* pixels: one lossless WebP record per layer */
 
 typedef struct servoom_layer_meta {
     uint8_t hidden;        /* descriptor byte[0] != 0: excluded from the composite */
     uint8_t opacity;       /* descriptor byte[1], 0..255 */
+    int hue;               /* editor HSL sliders: uint16 BE byte[2:4] - 180 (-180..180), */
+    int saturation;        /* byte[4] - 100 and byte[5] - 100 (-100..100); applied to the */
+    int lightness;         /* layer's painted pixels at render time */
     uint8_t descriptor[6]; /* the raw 6-byte descriptor */
 } servoom_layer_meta;
 
 typedef struct servoom_layer_frame {
     int num_layers;
-    int flag;                    /* per-frame flag byte (unconfirmed meaning) */
+    int flag;                    /* per-frame byte: the editor's active (selected) layer index */
     int first_layer;             /* index of this frame's first bitmap in the bean */
     servoom_layer_meta *layers;  /* num_layers entries, bottom -> top */
 } servoom_layer_frame;
@@ -50,8 +53,9 @@ void servoom_layer_bean_free(servoom_layer_bean *bean);
 const uint8_t *servoom_layer_bitmap(const servoom_layer_bean *bean, int frame, int layer);
 
 /* Composite one frame the way the Divoom editor does: black is transparent, layers are
- * painted bottom -> top over black with alpha = opacity/255, hidden layers skipped.
- * `out_rgb` must hold width*height*3 bytes. */
+ * painted bottom -> top over black, hidden layers skipped; a layer's HSL sliders are
+ * applied to its painted pixels first, then each is blended with alpha = opacity/255 in
+ * single precision and truncated. `out_rgb` must hold width*height*3 bytes. */
 servoom_status servoom_layer_composite_frame(const servoom_layer_bean *bean, int frame,
                                              uint8_t *out_rgb);
 

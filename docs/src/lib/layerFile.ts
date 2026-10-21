@@ -7,8 +7,10 @@ import { ensureZstdReady, zstdDecompressSync } from './zstd';
  *
  * Two container versions are supported; both start with a byte-0 format id followed by a
  * length-prefixed zstd stream (uint32 compressedSize | uint32 uncompressedSize | zstd frame)
- * holding the per-frame layer table (num_layers, flag, then num_layers x 6-byte descriptors
- * whose byte[0] is a "hidden" flag and byte[1] is opacity). They differ in the pixel section:
+ * holding the per-frame layer table (num_layers, active layer index, then num_layers x
+ * 6-byte descriptors: byte[0] "hidden" flag, byte[1] opacity, uint16 BE hue+180,
+ * byte[4] saturation+100, byte[5] lightness+100 -- the editor's HSL sliders). They
+ * differ in the pixel section:
  *
  * - 0x27 (39): a second zstd stream of K raw 24-bit RGB layer bitmaps, frame-major
  *   (bottom -> top). The canvas is square, so its side is sqrt(pixels / (3 * K)).
@@ -22,6 +24,9 @@ const FORMAT_WEBP = 0x28;
 export interface LayerFileLayerMeta {
   hidden: boolean;
   opacity: number; // 0-255
+  hue: number; // -180..180 (editor slider; bitmaps are stored post-adjustment)
+  saturation: number; // -100..100
+  lightness: number; // -100..100
 }
 
 export interface LayerFileFrameMeta {
@@ -101,7 +106,13 @@ function parseLayerTable(table: Uint8Array): LayerFileFrameMeta[] {
     p += 2;
     const layers: LayerFileLayerMeta[] = [];
     for (let i = 0; i < numLayers; i += 1) {
-      layers.push({ hidden: table[p] !== 0, opacity: table[p + 1] });
+      layers.push({
+        hidden: table[p] !== 0,
+        opacity: table[p + 1],
+        hue: ((table[p + 2] << 8) | table[p + 3]) - 180,
+        saturation: table[p + 4] - 100,
+        lightness: table[p + 5] - 100,
+      });
       p += 6;
     }
     frames.push({ numLayers, flag, layers });
@@ -223,9 +234,15 @@ export async function layerFileToPsd(
         rgba[o + 2] = b;
         rgba[o + 3] = painted ? 255 : 0;
       }
+      // HSL sliders ride along in the name (only when non-neutral) so they survive a
+      // PSD round trip; the hidden tag comes last.
+      const hsl =
+        meta.hue === 0 && meta.saturation === 0 && meta.lightness === 0
+          ? ''
+          : `_hue${meta.hue}_sat${meta.saturation}_lit${meta.lightness}`;
       const tag = meta.hidden ? '_HIDDEN' : '';
       children.push({
-        name: `f${pad(f, 3)}_l${pad(li, 2)}_op${pad(meta.opacity, 3)}${tag}`,
+        name: `f${pad(f, 3)}_l${pad(li, 2)}_op${pad(meta.opacity, 3)}${hsl}${tag}`,
         opacity: meta.opacity / 255,
         hidden: meta.hidden,
         left: 0,
