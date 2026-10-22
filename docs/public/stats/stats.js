@@ -423,7 +423,9 @@
       const [idx, a] = await Promise.all([J('daily/artists/index.json'), J(`daily/artists/${id}.json`)]);
       const me = idx?.artists?.find((x) => x.id === id);
       if (!me) { wait(sec('s_artist_missing'), 'artist_missing'); return; }
-      main.append($('div', { class: 'profile' }, avatar(me), $('div', {}, $('h1', {}, me.name), $('p', { class: 'note' }, [me.cc, `${L('level')} ${me.level}`, me.fans != null ? `${fmt(me.fans)} ${L('followers').toLowerCase()}` : null].filter(Boolean).join(' · ')))));
+      const facts = [me.cc, `${L('level')} ${me.level}`, me.fans != null ? `${fmt(me.fans)} ${L('followers').toLowerCase()}` : null].filter(Boolean).join(' · ');
+      main.append($('div', { class: 'profile' }, avatar(me), $('div', {}, $('h1', {}, me.name),
+        $('p', { class: 'note' }, facts, ' · ', $('a', { href: `../artists/artist.html#${id}` }, L('likes_page'))))));
       tiles([['uploads_12m', fmt(me.uploads)], ['picks_12m', fmt(me.picks)], ['likes_12m', fmt(me.likes)], ['views_12m', fmt(me.views)]]);
       // The tiles count the 365 days before the snapshot; the monthly charts go further back and shade that window.
       const now = new Date(idx.generated);

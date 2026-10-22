@@ -215,6 +215,7 @@ window.I18N = {
   likes_12m: ['Likes, 12 months', 'Me gusta, 12 meses', '12 个月点赞', 'いいね（12 か月）', 'Лайков за 12 мес.'],
   views_12m: ['Views, 12 months', 'Vistas, 12 meses', '12 个月浏览', '閲覧（12 か月）', 'Просмотров за 12 мес.'],
   s_artist_missing: ['Artist', 'Artista', '创作者', 'アーティスト', 'Художник'],
+  likes_page: ['Likes page', 'Página de "me gusta"', '点赞页面', '「いいね」ページ', 'Страница лайков'],
   artist_missing: ['This account is not in the set of featured artists.', 'Esta cuenta no está entre los artistas destacados.', '该账号不在被推介的创作者之列。', 'このアカウントは紹介アーティストに含まれていません。', 'Этого аккаунта нет среди выделенных художников.'],
   s_a_uploads: ['Uploads and Recommend picks per month', 'Subidas y selecciones Recommend al mes', '每月上传与 Recommend 入选', '月間の投稿と Recommend 選出', 'Загрузки и выборы Recommend по месяцам'],
   a_shade_note: ['Shaded: the last 365 days, the period the tiles above count. The dashed end is the month in progress.', 'Sombreado: los últimos 365 días, el periodo que cuentan las cifras de arriba. El tramo discontinuo es el mes en curso.', '阴影部分为最近 365 天，即上方数字统计的时段。虚线末段为尚未结束的当月。', '網掛けは直近 365 日で、上の数値の集計期間です。破線の末端は進行中の月です。', 'Затенены последние 365 дней — период, за который посчитаны показатели выше. Пунктир — текущий, ещё не завершённый месяц.'],
