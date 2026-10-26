@@ -33,6 +33,14 @@ re-checked against GitHub's documentation on 2026-10-04. The other rows are from
 | Snapshot (about 66,200 requests, file decoding, aggregation, commit, deploy hook) | 30 | 165 | 4,950 |
 | **Total** | | | **about 8,400** |
 
+Since 2026-10-26, with Divoom's budget of 30 requests a minute per source, the real
+figures are: pulse about 1,000 requests in up to 48 minutes, 720 runs a month; probe
+about 3,000 requests in up to 170 minutes, 30 runs; snapshot about 20,000 requests
+spread over four crawl shards of up to 5.3 hours each plus a finish job of up to 4.5
+hours, 15 readings a month: roughly 50,000 runner minutes a month, still unmetered on
+a public repository. Each runner has its own address, so each job is its own source
+for Divoom's limit; at most six jobs (a pulse, the probe, four shards) run at once.
+
 Per-run overhead is about one minute: checkout, Python from the runner image, cached pip
 install, a shallow clone of the private repository's `state` branch and the current
 month of `obs/`.
