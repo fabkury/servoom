@@ -86,7 +86,22 @@ tbody tr:last-child td { border-bottom:0 }
 #list img, #list .av { width:24px; height:24px; max-width:none; image-rendering:pixelated; display:block; background-color:#000 }
 #list td { padding:4px 8px }
 #list td:first-child, #list th:first-child { width:32px; min-width:32px }
-.more { font:inherit; padding:8px 14px; border:1px solid var(--line); background:var(--surface); color:var(--fg); border-radius:6px; cursor:pointer; align-self:flex-start }
+#list tbody tr { cursor:pointer }
+#list tbody tr:hover td { background:var(--people-bg) }
+#list tbody tr.on td { background:var(--block-bg) }
+#list tbody tr:focus-visible { outline:2px solid var(--block); outline-offset:-2px }
+.pager { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+.pager button { font:inherit; font-size:.9rem; padding:6px 12px; border:1px solid var(--line); background:var(--surface); color:var(--fg); border-radius:6px; cursor:pointer }
+.pager button:disabled { opacity:.4; cursor:default }
+.pager button:not(:disabled):hover { border-color:var(--block) }
+.pager .cnt { font-size:.85rem; color:var(--muted); font-variant-numeric:tabular-nums; padding-inline:4px }
+.detail { display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap; background:var(--surface); border:2px solid var(--block); border-radius:6px; padding:16px }
+.detail img, .detail .av, .detail .none { width:160px; height:160px; max-width:none; image-rendering:pixelated; border:1px solid var(--line); background-color:#000; flex:0 0 auto; display:block }
+.detail .none { background:var(--bg) }
+.detail .dname { font-weight:700; font-size:1.5rem; line-height:1.2; overflow-wrap:anywhere }
+.detail .did { color:var(--muted) }
+.detail dl { display:grid; grid-template-columns:auto auto; gap:4px 14px; margin:10px 0 0; font-size:.9rem }
+.detail dt { color:var(--muted) } .detail dd { margin:0; font-variant-numeric:tabular-nums }
 .method { font-size:.9rem; color:var(--fg2) }
 .foot { font-size:.85rem; color:var(--muted); border-top:1px solid var(--line); padding-top:14px }
 a { color:var(--people) }

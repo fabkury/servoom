@@ -197,7 +197,22 @@ tbody tr:last-child td { border-bottom:0 }
 #list img, #list .av { width:24px; height:24px; max-width:none; image-rendering:pixelated; display:block; background-color:#000 }
 #list td { padding:4px 8px }
 #list td:first-child, #list th:first-child { width:32px; min-width:32px }
-.more { font:inherit; padding:8px 14px; border:1px solid var(--line); background:var(--surface); color:var(--fg); border-radius:6px; cursor:pointer; align-self:flex-start }
+#list tbody tr { cursor:pointer }
+#list tbody tr:hover td { background:var(--people-bg) }
+#list tbody tr.on td { background:var(--block-bg) }
+#list tbody tr:focus-visible { outline:2px solid var(--block); outline-offset:-2px }
+.pager { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+.pager button { font:inherit; font-size:.9rem; padding:6px 12px; border:1px solid var(--line); background:var(--surface); color:var(--fg); border-radius:6px; cursor:pointer }
+.pager button:disabled { opacity:.4; cursor:default }
+.pager button:not(:disabled):hover { border-color:var(--block) }
+.pager .cnt { font-size:.85rem; color:var(--muted); font-variant-numeric:tabular-nums; padding-inline:4px }
+.detail { display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap; background:var(--surface); border:2px solid var(--block); border-radius:6px; padding:16px }
+.detail img, .detail .av, .detail .none { width:160px; height:160px; max-width:none; image-rendering:pixelated; border:1px solid var(--line); background-color:#000; flex:0 0 auto; display:block }
+.detail .none { background:var(--bg) }
+.detail .dname { font-weight:700; font-size:1.5rem; line-height:1.2; overflow-wrap:anywhere }
+.detail .did { color:var(--muted) }
+.detail dl { display:grid; grid-template-columns:auto auto; gap:4px 14px; margin:10px 0 0; font-size:.9rem }
+.detail dt { color:var(--muted) } .detail dd { margin:0; font-variant-numeric:tabular-nums }
 .method { font-size:.9rem; color:var(--fg2) }
 .foot { font-size:.85rem; color:var(--muted); border-top:1px solid var(--line); padding-top:14px }
 a { color:var(--people) }
@@ -354,9 +369,11 @@ def body():
   <div class="eyebrow" data-t="list_label"></div>
   <h2 data-t="list_h2"></h2>
   <p data-t="list_1"></p>
+  <p class="sub" data-t="list_pick"></p>
   <div class="search"><input id="q" type="search" autocomplete="off"><span class="cnt" id="cnt"></span></div>
   <div class="scroll"><table id="list"><thead><tr><th></th><th data-t="list_th_id"></th><th data-t="list_th_name"></th><th class="num" data-t="list_th_level"></th><th class="num" data-t="list_th_score"></th><th class="num" data-t="list_th_likes"></th><th class="num" data-t="list_th_fans"></th><th data-t="list_th_country"></th><th class="num" data-t="list_th_arts"></th></tr></thead><tbody id="lb"></tbody></table></div>
-  <button type="button" class="more" id="more" data-t="list_more"></button>
+  <div class="pager"><button type="button" id="pg-first" data-t="list_first"></button><button type="button" id="pg-prev" data-t="list_prev"></button><span class="cnt" id="pg-info"></span><button type="button" id="pg-next" data-t="list_next"></button><button type="button" id="pg-last" data-t="list_last"></button></div>
+  <div class="detail" id="detail" hidden></div>
 </section>
 
 <section class="method">
@@ -429,21 +446,44 @@ const ttl=a=>` title="${{a[1].replace(/"/g,"&quot;")}} · ${{a[0]}}"`;
 // mosaic
 const mo=document.getElementById("mosaic");
 function renderMosaic(){{{mosaic_js}}}
-// list
-let showAll=false;
-const q=document.getElementById("q"),lb=document.getElementById("lb"),cnt=document.getElementById("cnt"),more=document.getElementById("more");
+// list: pages of PAGE rows; the search covers every account; a row opens the detail panel
+const PAGE=50;
+let page=0,picked=-1;
+const q=document.getElementById("q"),lb=document.getElementById("lb"),cnt=document.getElementById("cnt"),info=document.getElementById("pg-info"),detail=document.getElementById("detail");
+const pg={{first:document.getElementById("pg-first"),prev:document.getElementById("pg-prev"),next:document.getElementById("pg-next"),last:document.getElementById("pg-last")}};
+const tt=k=>fill((T[lang]||T.en)[k]??T.en[k]??"");
+const escText=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+function matches(){{const s=q.value.trim().toLowerCase();return A.filter(a=>!s||a[1].toLowerCase().includes(s)||String(a[0]).includes(s))}}
 function renderList(){{
-  const s=q.value.trim().toLowerCase();
-  const rows=A.filter(a=>!s||a[1].toLowerCase().includes(s)||String(a[0]).includes(s));
-  const shown=(showAll||s)?rows:rows.slice(0,40);
-  const f=nf();
-  lb.innerHTML=shown.map(a=>`<tr><td>${{a[8]?avHtml(a,A.indexOf(a),""):""}}</td><td class="mono">${{a[0]}}</td><td>${{a[1].replace(/</g,"&lt;")}}</td><td class="num">${{a[2]}}</td><td class="num">${{f.format(a[3])}}</td><td class="num">${{f.format(a[4])}}</td><td class="num">${{a[5]}}</td><td>${{a[6]}}</td><td class="num">${{a[7]}}</td></tr>`).join("");
-  cnt.textContent=(T[lang].list_count||T.en.list_count).replace("{{{{n}}}}",f.format(shown.length));
-  more.hidden=showAll||!!s||rows.length<=40;
+  const rows=matches(),f=nf(),pages=Math.max(1,Math.ceil(rows.length/PAGE));
+  page=Math.min(page,pages-1);
+  const shown=rows.slice(page*PAGE,page*PAGE+PAGE);
+  lb.innerHTML=shown.length?shown.map(a=>{{const i=A.indexOf(a);return `<tr data-i="${{i}}" tabindex="0"${{i===picked?' class="on"':""}}><td>${{a[8]?avHtml(a,i,""):""}}</td><td class="mono">${{a[0]}}</td><td>${{escText(a[1])}}</td><td class="num">${{a[2]}}</td><td class="num">${{f.format(a[3])}}</td><td class="num">${{f.format(a[4])}}</td><td class="num">${{a[5]}}</td><td>${{a[6]}}</td><td class="num">${{a[7]}}</td></tr>`}}).join("")
+    :`<tr><td colspan="9">${{tt("list_none")}}</td></tr>`;
+  cnt.textContent=tt("list_matches").replace("{{{{n}}}}",f.format(rows.length));
+  info.textContent=tt("list_page").replace("{{{{p}}}}",f.format(page+1)).replace("{{{{n}}}}",f.format(pages));
+  pg.first.disabled=pg.prev.disabled=page===0;
+  pg.next.disabled=pg.last.disabled=page>=pages-1;
+  renderDetail();
   paint();
 }}
-q.addEventListener("input",renderList);
-more.addEventListener("click",()=>{{showAll=true;renderList()}});
+function renderDetail(){{
+  const a=A[picked];
+  detail.hidden=!a;
+  if(!a)return;
+  const f=nf(),row=(k,v)=>`<dt>${{tt(k)}}</dt><dd>${{v}}</dd>`;
+  detail.innerHTML=avHtml(a,picked,"")+`<div><div class="dname">${{escText(a[1])||"&nbsp;"}}</div><div class="did mono">${{tt("list_th_id")}} ${{a[0]}}</div><dl>`
+    +row("list_th_level",a[2])+row("list_th_score",f.format(a[3]))+row("list_th_likes",f.format(a[4]))+row("list_th_fans",f.format(a[5]))+row("list_th_country",escText(a[6])||"–")+row("list_th_arts",f.format(a[7]))+`</dl></div>`;
+}}
+function pick(i){{picked=i;lb.querySelectorAll("tr").forEach(tr=>tr.classList.toggle("on",+tr.dataset.i===i));renderDetail();paint()}}
+lb.addEventListener("click",e=>{{const tr=e.target.closest("tr[data-i]");if(tr)pick(+tr.dataset.i)}});
+lb.addEventListener("keydown",e=>{{if(e.key==="Enter"||e.key===" "){{const tr=e.target.closest("tr[data-i]");if(tr){{e.preventDefault();pick(+tr.dataset.i)}}}}}});
+q.addEventListener("input",()=>{{page=0;renderList()}});
+const goTo=p=>{{page=p;renderList();document.getElementById("list").scrollIntoView({{block:"nearest"}})}};
+pg.first.addEventListener("click",()=>goTo(0));
+pg.prev.addEventListener("click",()=>goTo(page-1));
+pg.next.addEventListener("click",()=>goTo(page+1));
+pg.last.addEventListener("click",()=>goTo(Math.ceil(matches().length/PAGE)-1));
 // initial language: query, hash, then saved choice, then browser
 (function(){{
   let l=(new URLSearchParams(location.search).get("lang")||"").toLowerCase();
