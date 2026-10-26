@@ -62,6 +62,14 @@ footer { border-top: 1px solid var(--line); padding: 20px; text-align: center; c
 .card h2 { font-size: 1.3rem; }
 .card p { color: var(--ink2); font-size: .95rem; }
 .card .go { color: var(--c1); font-weight: 600; margin-top: auto; }
+/* The featured card on the landing page: the like-block report, in warning colors. */
+.card.featured { --alert: #e8451c; --alert2: #ffb01f; margin-top: 20px; border: 2px solid var(--alert); background: linear-gradient(135deg, rgba(232, 69, 28, .22), rgba(255, 176, 31, .16)); gap: 8px; }
+.card.featured:hover, .card.featured:focus-visible { border-color: var(--alert2); }
+.card.featured .eyebrow { color: var(--alert2); font-weight: 700; font-size: .82rem; letter-spacing: .08em; text-transform: uppercase; }
+.card.featured h2 { font-size: clamp(1.4rem, 3.5vw, 1.9rem); color: var(--ink); }
+.card.featured p { color: var(--ink); max-width: 70ch; }
+.card.featured .go { color: var(--alert2); }
+@media (prefers-color-scheme: light) { .card.featured { --alert: #d13a12; --alert2: #b86a00; background: linear-gradient(135deg, #fde2d8, #fff1c9); } }
 :focus-visible { outline: 2px solid var(--c1); outline-offset: 2px; }
 /* collection health: bands over the periods a chart's collector missed or read incompletely */
 svg.defs { position: absolute; width: 0; height: 0; }
