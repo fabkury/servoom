@@ -162,5 +162,12 @@
   "lang_label": "语言",
   "open_section": "展开",
   "close_section": "收起",
-  "ex_stats": "等级 {{drew_level}} · 积分 {{drew_score}} · 收到 {{drew_likes}} 个赞 · {{drew_fans}} 个粉丝 · 关注 0 · {{drew_arts}} 件作品"
+  "ex_stats": "等级 {{drew_level}} · 积分 {{drew_score}} · 收到 {{drew_likes}} 个赞 · {{drew_fans}} 个粉丝 · 关注 0 · {{drew_arts}} 件作品",
+
+  "nav_download": "下载",
+  "nav_stats": "统计",
+  "nav_artists": "画师",
+  "nav_bots": "机器人",
+  "nav_unofficial": "非官方网站，与 Divoom 无关。",
+  "list_wait": "无法加载账号列表。请刷新页面重试。"
 }

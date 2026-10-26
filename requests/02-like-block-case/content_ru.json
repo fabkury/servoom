@@ -162,5 +162,12 @@
   "lang_label": "Язык",
   "open_section": "Показать",
   "close_section": "Скрыть",
-  "ex_stats": "уровень {{drew_level}} · очки {{drew_score}} · {{drew_likes}} получено лайков · {{drew_fans}} подписчиков · подписок 0 · {{drew_arts}} работ"
+  "ex_stats": "уровень {{drew_level}} · очки {{drew_score}} · {{drew_likes}} получено лайков · {{drew_fans}} подписчиков · подписок 0 · {{drew_arts}} работ",
+
+  "nav_download": "Загрузка",
+  "nav_stats": "Статистика",
+  "nav_artists": "Художники",
+  "nav_bots": "Боты",
+  "nav_unofficial": "Неофициальный сайт. Не связан с Divoom.",
+  "list_wait": "Не удалось загрузить список аккаунтов. Обновите страницу, чтобы повторить попытку."
 }

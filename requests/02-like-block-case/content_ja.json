@@ -162,5 +162,12 @@
   "lang_label": "言語",
   "open_section": "表示",
   "close_section": "非表示",
-  "ex_stats": "レベル{{drew_level}} · スコア{{drew_score}} · 受け取った「いいね」{{drew_likes}} · フォロワー{{drew_fans}}人 · フォロー中0 · 作品{{drew_arts}}点"
+  "ex_stats": "レベル{{drew_level}} · スコア{{drew_score}} · 受け取った「いいね」{{drew_likes}} · フォロワー{{drew_fans}}人 · フォロー中0 · 作品{{drew_arts}}点",
+
+  "nav_download": "ダウンロード",
+  "nav_stats": "統計",
+  "nav_artists": "アーティスト",
+  "nav_bots": "ボット",
+  "nav_unofficial": "非公式サイトです。Divoom とは関係ありません。",
+  "list_wait": "アカウント一覧を読み込めませんでした。ページを再読み込みしてください。"
 }

@@ -43,7 +43,7 @@
     pick.addEventListener('change', () => { try { localStorage.setItem(KEY, pick.value); } catch { /* ignore */ } location.replace(location.pathname + location.hash); });
     const head = $('header', { class: 'top' },
       $('a', { class: 'brand', href: '../' }, 'servoom'),
-      $('nav', { class: 'pillars' }, $('a', { href: '../download/' }, L('n_download')), $('a', { href: '../stats/' }, L('n_stats')), $('a', { href: './', class: 'on' }, L('n_artists'))),
+      $('nav', { class: 'pillars' }, $('a', { href: '../download/' }, L('n_download')), $('a', { href: '../stats/' }, L('n_stats')), $('a', { href: './', class: 'on' }, L('n_artists')), $('a', { href: '../bots/' }, L('n_bots'))),
       pick);
     const cur = page === 'artist' ? 'index' : page;
     const sub = $('nav', { class: 'sub', 'aria-label': L('n_artists') },

@@ -162,5 +162,12 @@
   "lang_label": "Language",
   "open_section": "Show",
   "close_section": "Hide",
-  "ex_stats": "level {{drew_level}} · score {{drew_score}} · {{drew_likes}} likes received · {{drew_fans}} followers · following 0 · {{drew_arts}} artworks"
+  "ex_stats": "level {{drew_level}} · score {{drew_score}} · {{drew_likes}} likes received · {{drew_fans}} followers · following 0 · {{drew_arts}} artworks",
+
+  "nav_download": "Download",
+  "nav_stats": "Statistics",
+  "nav_artists": "Artists",
+  "nav_bots": "Bots",
+  "nav_unofficial": "Unofficial. Not affiliated with Divoom.",
+  "list_wait": "The list of accounts could not be loaded. Reload the page to try again."
 }

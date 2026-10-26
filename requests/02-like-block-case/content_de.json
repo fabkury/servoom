@@ -162,5 +162,12 @@
   "lang_label": "Sprache",
   "open_section": "Anzeigen",
   "close_section": "Ausblenden",
-  "ex_stats": "Level {{drew_level}} · {{drew_score}} Punkte · {{drew_likes}} erhaltene Likes · {{drew_fans}} Follower · folgt 0 · {{drew_arts}} Kunstwerke"
+  "ex_stats": "Level {{drew_level}} · {{drew_score}} Punkte · {{drew_likes}} erhaltene Likes · {{drew_fans}} Follower · folgt 0 · {{drew_arts}} Kunstwerke",
+
+  "nav_download": "Download",
+  "nav_stats": "Statistiken",
+  "nav_artists": "Künstler",
+  "nav_bots": "Bots",
+  "nav_unofficial": "Inoffiziell. Nicht mit Divoom verbunden.",
+  "list_wait": "Die Kontenliste konnte nicht geladen werden. Laden Sie die Seite neu, um es erneut zu versuchen."
 }

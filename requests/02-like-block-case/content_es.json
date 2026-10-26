@@ -162,5 +162,12 @@
   "lang_label": "Idioma",
   "open_section": "Mostrar",
   "close_section": "Ocultar",
-  "ex_stats": "nivel {{drew_level}} · puntuación {{drew_score}} · {{drew_likes}} «me gusta» recibidos · {{drew_fans}} seguidores · siguiendo a 0 · {{drew_arts}} obras"
+  "ex_stats": "nivel {{drew_level}} · puntuación {{drew_score}} · {{drew_likes}} «me gusta» recibidos · {{drew_fans}} seguidores · siguiendo a 0 · {{drew_arts}} obras",
+
+  "nav_download": "Descargar",
+  "nav_stats": "Estadísticas",
+  "nav_artists": "Artistas",
+  "nav_bots": "Bots",
+  "nav_unofficial": "No oficial. Sin relación con Divoom.",
+  "list_wait": "No se pudo cargar la lista de cuentas. Recargue la página para intentarlo de nuevo."
 }
