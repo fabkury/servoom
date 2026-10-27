@@ -32,14 +32,24 @@ these documents, the code is right. Known differences:
   runs out of its 5.3-hour budget saves and stops, and `finish` starts another run of
   the workflow (at most five per reading), which resumes the shards from their
   checkpoints (valid for 48 hours from their save).
-* **The pulse has a reading budget (2026-10-26).** Each hour reads for at most 48
-  minutes: window listings first, then feeds, re-reads of omitted artworks, like lists,
-  the id walk and (every fourth hour) the refresh. Parts the budget cuts are logged and
-  the hour shows as degraded ("reading time ran out") on the charts. The daily
-  look-ahead over every list, the category totals and the follow-up of held uploads
-  moved to a daily `probe` workflow on its own runner; the pulse takes its results over.
-* **State lives on branches** of the raw repository, `state-pulse` and `state-snap`,
-  one per job, so the hourly and daily jobs never write the same file.
+* **The pulse has a reading budget (2026-10-26), and a second job follows it (2026-10-27).**
+  Each hour the pulse reads for at most 44 minutes: window listings first, then feeds,
+  re-reads of omitted artworks, like lists. A `refresh` job then runs on another runner
+  (its own budget of 30 requests a minute, its own account) until 2.5 minutes before the
+  next pulse: the id walk, new comments and a sample of new accounts, each phase with a
+  share of the time so none starves the others; every 4 hours it rebuilds `data/pulse`
+  and the health lanes whether or not those reads fit. The two never overlap, so a
+  shared egress address or account cannot cost refusals; and the client slows itself
+  down after a refusal in case other jobs share one anyway. Parts a budget cuts are
+  logged and the hour shows as degraded ("reading time ran out") on the charts. The
+  daily look-ahead over every list, the category totals and the follow-up of held
+  uploads are a daily `probe` workflow on its own runner; the pulse and the refresh take
+  its results over. Until 2026-10-27 the walk and the refresh ran inside the pulse, where
+  the like lists always used the budget up first, and the site data stood still from
+  2026-10-23 to 2026-10-27.
+* **State lives on branches** of the raw repository (`state-pulse`, `state-refresh`,
+  `state-probe`, `state-snap`, `state-crawl-<k>`), one per job, each with a single
+  writer; a job reads the others' branches and never writes them.
 * **Languages.** Titles and comments are classified by writing system (Latin, Chinese
   characters, kana, Cyrillic, ...), not by language.
 * **Layers.** Files record whether a layer file exists, not how many layers it has.
