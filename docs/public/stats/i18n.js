@@ -7,7 +7,7 @@ window.I18N = {
   n_artists: ['Artists', 'Artistas', '画师', 'アーティスト', 'Художники'],
   n_bots: ['Bots', 'Bots', '机器人', 'ボット', 'Боты'],
   land_ar_t: ['Artists and their likes', 'Artistas y sus "me gusta"', '画师与点赞', 'アーティストと「いいね」', 'Художники и лайки'],
-  land_bo_e: ['New report', 'Nuevo informe', '新报告', '新しいレポート', 'Новый отчёт'],
+  land_bo_e: ['Report', 'Informe', '报告', 'レポート', 'Отчёт'],
   land_read: ['Read the report', 'Leer el informe', '阅读报告', 'レポートを読む', 'Читать отчёт'],
   land_bo_t: ['Who is liking your Divoom art?', '¿Quién da «me gusta» a tu arte Divoom?', '谁在给你的 Divoom 作品点赞？', 'あなたの Divoom 作品に「いいね」しているのは誰？', 'Кто лайкает ваши работы на Divoom?'],
   land_bo_d: ['The case of the 2,000-account like-block: the evidence, the timeline and the full list of accounts, in eight languages.', 'El caso del bloque de 2.000 cuentas que dan «me gusta»: las pruebas, la cronología y la lista completa de cuentas, en ocho idiomas.', '2,000 个账号点赞集团的调查：证据、时间线和完整账号名单，提供八种语言。', '2,000 アカウントの「いいね」ブロックの調査：証拠、経緯、全アカウントの一覧。8 言語で。', 'Дело о блоке из 2 000 аккаунтов, ставящих лайки: доказательства, хронология и полный список аккаунтов, на восьми языках.'],
