@@ -46,6 +46,33 @@ artwork" and still not wired.
 | `apptest.divoom-gz.com` | Divoom's test build | same rejection |
 | `f.divoom-gz.com` | file downloads (`https://f.divoom-gz.com/<FileId>`) | identical bytes from `fin.divoom-gz.com` |
 
+### Logging in
+
+`POST /UserLogin`, body `{"Email": <identifier>, "Password": <md5>}` (the app also
+sends `CountryISOCode`, `Language`, `TimeZone`; none are required). `Password` is the
+MD5 of the plaintext, 32 lowercase hex digits. A hit returns `ReturnCode 0` with
+`UserId` and a numeric `Token`; `ReturnCode 4` is "Email is not registered", `5` is a
+wrong password.
+
+**`Email` is a generic login identifier, not necessarily an email.** The China build of
+the app (host `appchina`) presents one account box hinted "手机号码/email" and, whether the
+user types a phone number or an email, sends it in this same `Email` field to this same
+`/UserLogin`. There is no separate phone-login command: `PhoneRegister` /
+`PhoneGetRegisterCode` are account *creation* (SMS code), and `QQLogin` / `WechatLogin` /
+`ThirdLogin` / `TwitterLogin` are social login. So a phone-registered Chinese account logs
+in with its phone number in `Email` plus its MD5 password, exactly like an email account.
+
+**The account database is global, the token is per-host.** A throwaway account registered
+on the *international* app logged in on `app`, `appin` **and** `appchina` on 2026-10-30
+(probed from an Azure datacenter), each returning the same `UserId` 405008931 and minting
+its own `Token`. Login therefore works on any host for any account, but a token is only
+honored by the host that issued it (`appchina` rejects an `appin` token with
+`ReturnCode 11`, per the Hosts table). Consequence for a single-host client like servoom:
+log in, list and download all against one host (`app.divoom-gz.com`), and a Chinese
+phone account works there with no China-specific endpoint. All three app hosts answer
+browser requests with `Access-Control-Allow-Origin: *` (methods `GET, POST, OPTIONS`;
+`User-Agent` and `Content-Type` allowed), so a static site can call them directly.
+
 ### Anonymous access
 
 Many read endpoints answer **without any token** (the web gallery relies on this). Verified

@@ -161,7 +161,7 @@ const translations: Record<Locale, Translation> = {
       loading: 'Loading…',
     },
     labels: {
-      email: 'Email',
+      email: 'Email or phone',
       password: 'Password or MD5 hash',
       passwordHashed: 'Password is already hashed',
       start: 'Start #',
@@ -273,7 +273,7 @@ const translations: Record<Locale, Translation> = {
       loading: 'Cargando…',
     },
     labels: {
-      email: 'Correo electrónico',
+      email: 'Correo o teléfono',
       password: 'Contraseña o hash MD5',
       passwordHashed: 'La contraseña ya está hasheada',
       start: 'Inicio #',
@@ -386,7 +386,7 @@ const translations: Record<Locale, Translation> = {
       loading: '加载中…',
     },
     labels: {
-      email: '邮箱',
+      email: '邮箱或手机号',
       password: '密码或 MD5 哈希',
       passwordHashed: '密码已是哈希值',
       start: '起始 #',
@@ -498,7 +498,7 @@ const translations: Record<Locale, Translation> = {
       loading: '読み込み中…',
     },
     labels: {
-      email: 'メールアドレス',
+      email: 'メールアドレスまたは電話番号',
       password: 'パスワードまたは MD5 ハッシュ',
       passwordHashed: 'パスワードはすでにハッシュ化してある',
       start: '開始 #',
@@ -610,7 +610,7 @@ const translations: Record<Locale, Translation> = {
       loading: 'Загрузка…',
     },
     labels: {
-      email: 'Email',
+      email: 'Email или телефон',
       password: 'Пароль или MD5-хеш',
       passwordHashed: 'Пароль уже захеширован',
       start: 'Старт #',
@@ -1585,7 +1585,14 @@ function App() {
           <form className="grid-form" onSubmit={handleLogin}>
             <label>
               {t.labels.email}
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <input
+                type="text"
+                inputMode="text"
+                autoComplete="username"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
             </label>
             <label title={t.tooltips.hash}>
               {t.labels.password}
