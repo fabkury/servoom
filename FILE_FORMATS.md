@@ -5,7 +5,8 @@ container format id. This page records what each container actually holds in the
 (one frame, many frames, or either), based on files pulled from the live gallery feeds on
 2026-09-24 and decoded with the servoom decoders. It supersedes the folklore in the older
 decoder comments ("single animation", "multiple picture format", ...), which was partly
-wrong.
+wrong. Two companion files are covered too: the layer file of a layered artwork ("Layer
+files") and the sound clip an artwork can carry ("Audio files").
 
 ## Summary
 
@@ -170,6 +171,49 @@ An artwork drawn with layers is uploaded with a second file holding the layers (
 or over 819,200 bytes (800 KiB) at smaller sizes, the app also builds 0x28 (one WebP per
 layer) and uploads whichever of the two is smaller. A 256x256 artwork flagged as a photo
 always gets 0x28.
+
+### Audio files
+
+An artwork can carry a sound clip. The record then has a `MusicFileId`, a second cloud
+file served from the same host as the picture (`https://f.divoom-gz.com/<MusicFileId>`,
+`application/octet-stream`, no extension; the id looks like
+`group1/M00/1C/9D/rBAAM2rDWXWEDek_AAAAAOErBEc4646680`). About 1.65% of recent uploads have
+one (100 of the newest 6,050 artworks of the Default and NEW categories, 2026-11-01).
+
+The server stores the clip exactly as uploaded, and nothing is encrypted or wrapped: the
+music file is a plain audio file, in one of two containers, both holding **AAC-LC**.
+
+| Container | First bytes | Seen | What produces it |
+|-----------|-------------|-----:|------------------|
+| raw **AAC ADTS** stream | `FF F1` (sync word, MPEG-4, no CRC); `FF F1 50 40` in every sample | 100 of 109 | the Android app: `AudioRecord` at 44,100 Hz mono 16-bit, optional native voice changer (`NDKMain.variations`), then the native encoder `encodeAACInit(44100, 1, 32000)` of `libtimebox.so`; the bytes go up as the `musicFile` part (`CLOUD_API.md`, "Uploading an artwork") |
+| **M4A** (`ftyp` box, brand `M4A `, `isommp42`) | `.. .. .. .. 66 74 79 70 4D 34 41 20` | 9 of 109 | the iOS app (the files carry the `iTunSMPB` gapless tag of Apple's AudioToolbox encoder) |
+
+Measured on the 109 files of the 2026-11-01 sample (`corpus/audio/`, local-only):
+
+- **ADTS**: AAC-LC, 44,100 Hz, **mono**, no CRC, identical 7-byte header pattern in all
+  100. 33–63 kb/s (median 44). Duration from the frame count (1,024 samples per frame;
+  ffprobe's duration for a raw ADTS stream is a bitrate guess and was off by up to 28 s):
+  0.05–80 s, median 25 s, with a cluster at 60 s. The Android recorder stops at 60 s
+  (`CloudVoiceFragment`, `60000` ms); one uploader's pair of identical 80 s clips is the
+  only thing past it. 348 bytes to 476 KB, median 95 KB.
+- **M4A**: AAC-LC, **stereo**, 44.1 kHz (one 48 kHz), 2–30 s. Seven of the nine are 4–7 kb/s
+  and decode to digital silence; the other two are 130–148 kb/s real audio.
+
+The clip is independent of the picture. In the sample 10 of 109 artworks are stills
+(format 8) and the rest animations (formats 9, 18, 26, 42, 43); the clip's length matches
+the animation's (frames x speed) in only 5 of 109 cases, the median ratio being 9x. The
+device loops one under the other. 28 of the 109 also had a layer file.
+
+To tell the two apart, check the first bytes: `ftyp` at offset 4 means an MP4-family file
+(brand `M4A ` for the iOS uploads), `0xFFF` sync bits at offset 0 mean ADTS. `servoom.audio`
+does that (`sniff_audio`), reads the ADTS parameters and frame count (`parse_adts`), and
+`DivoomClient.download_music(record)` saves the clip with the matching extension. Any AAC
+decoder plays either file; nothing Divoom-specific is involved.
+
+On devices, playback is by id: `Draw/SendRemote` and `Channel/SetCustom` carry
+`SoundFileId` (the `MusicFileId`, or a LAN id when the picture was pushed over the local
+network), and the device fetches the clip itself. The app gates this on a capability flag
+set for the LCD/Wi-Fi generation (`DeviceFunction.f11230Z`, false for the "AstroToo").
 
 ## Per-format evidence
 
