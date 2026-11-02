@@ -13,6 +13,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from . import csv_export
 from .config import DEFAULT_SETTINGS, Settings
 from .const import ANONYMOUS_ENDPOINTS, ApiEndpoint, ForumRegion, Server
+from .audio import sniff_audio
 from .credentials import load_credentials
 from .http import DivoomSession, paginate
 from .logging import get_logger
@@ -152,7 +153,7 @@ class DivoomClient:
         return output_path
 
     def download_file(self, file_id: str, output_path: str) -> str:
-        """Download any cloud file (an artwork ``FileId`` or a ``LayerFileId``) to ``output_path``.
+        """Download any cloud file (an artwork ``FileId``, ``LayerFileId`` or ``MusicFileId``) to ``output_path``.
 
         No login is required: the file server is public once the id is known.
         """
@@ -165,6 +166,28 @@ class DivoomClient:
                         fh.write(chunk)
         except Exception as exc:
             raise RuntimeError(f"Failed to download file: {exc}") from exc
+        return output_path
+
+    def download_music(self, metadata: Dict, output_dir: Optional[str] = None) -> Optional[str]:
+        """Download the audio clip of an artwork record (its ``MusicFileId``), or None if it has none.
+
+        The file is saved as ``<GalleryId>_music.<ext>`` where the extension comes from the
+        container actually served (``aac`` for a raw ADTS stream, ``m4a`` for an MP4 file; see
+        :mod:`servoom.audio`). The server stores the clip as uploaded, so the bytes are the
+        uploader's file. No login is required.
+        """
+        music_id = metadata.get("MusicFileId")
+        if not music_id:
+            return None
+        output_dir = output_dir or self._settings.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        tmp_path = os.path.join(output_dir, f"{metadata.get('GalleryId', 'artwork')}_music.part")
+        self.download_file(music_id, tmp_path)
+        with open(tmp_path, "rb") as fh:
+            container = sniff_audio(fh.read(16))
+        output_path = tmp_path[:-len(".part")] + "." + container.value
+        os.replace(tmp_path, output_path)
+        log.info("Downloaded music: %s", safe_console_text(os.path.basename(output_path)))
         return output_path
 
     def decode_art(self, pixel_bean: PixelBean) -> PixelBean:

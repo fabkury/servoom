@@ -242,7 +242,7 @@ returns the same fields for one id. Verified field list:
 | `Content`, `FileTagArray`, `AtList` | caption, `#tags`, `@mentions` (`{AtUserId, AtNickName}`) |
 | `PrivateFlag`, `HideFlag`, `IsDel`, `CheckConfirm`, `CopyrightFlag`, `AIFlag` | visibility/moderation flags. `CheckConfirm` is the **photo-review** status: `0` on ordinary pixel art (every record of the NEW feed), `1` pending, `2` approved, `3` the other verdict (still listed in the Photo category) |
 | `IsAddNew`, `IsAddRecommend`, `GoodLevel` | curation: promoted to NEW / Recommend |
-| `LayerFileId`, `MusicFileId`, `OriginalGalleryId` | layer-file companion (`FILE_FORMATS.md`), attached music, source of a remix |
+| `LayerFileId`, `MusicFileId`, `OriginalGalleryId` | layer-file companion (`FILE_FORMATS.md`, "Layer files"), attached sound clip (`FILE_FORMATS.md`, "Audio files": a plain AAC file, ADTS from Android or M4A from iOS, served from the same file host; `download_music(record)`), source of a remix |
 | `FillGameScore`, `FillGameIsFinish` | Pixel Coloring game state |
 | `ReportInfo`, `ReportUser`, `itemId`, `itemType` | present in the app model, not seen populated |
 
@@ -289,11 +289,12 @@ All verified, all take the filter block above and page with `StartNum`/`EndNum`.
 ## Uploading an artwork
 
 The one write command described in detail. servoom does not call it; this section records
-what the app sends, and what the server accepted in a live test on 2026-10-03: ten private
-16x16 stills (format 8, built from scratch) uploaded from the throwaway account and
-deleted afterwards. Only that kind of artwork was uploaded. Everything about animations,
-larger canvases, music, layers, photo and AI uploads is read from the app (3.8.40) and
-not confirmed live.
+what the app sends, and what the server accepted in two live tests: on 2026-10-03 ten
+private 16x16 stills (format 8, built from scratch), and on 2026-11-01 one more such still
+with a `musicFile` part (a 1.5 s AAC ADTS clip made with ffmpeg), all uploaded from the
+throwaway account and deleted afterwards. Only those kinds of artwork were uploaded.
+Everything about animations, larger canvases, layers, photo and AI uploads is read from the
+app (3.8.40) and not confirmed live.
 
 ### The request
 
@@ -307,12 +308,18 @@ request with the same token.
 | Part | Content | Sent |
 |------|---------|------|
 | `pixelFile` | the artwork container (`FILE_FORMATS.md`) | always; without it the answer is `ReturnCode 1` |
-| `musicFile` | attached music | only when the artwork has music |
+| `musicFile` | the sound clip, a plain audio file: the app sends a raw AAC ADTS stream (AAC-LC, 44.1 kHz, mono, `encodeAACInit(44100, 1, 32000)`); the server also keeps M4A files from iOS as they are (`FILE_FORMATS.md`, "Audio files") | only when the artwork has a clip |
 | `layerFile` | the layer file (`FILE_FORMATS.md`, "Layer files") | only when the artwork has layers |
 | `json` | the metadata below, as one JSON string | always |
 
-The file parts use their own name as the file name. The server stores `pixelFile`
-untouched: the file downloaded back was byte-identical to the one sent.
+The file parts use their own name as the file name. The server stores `pixelFile` and
+`musicFile` untouched: both files downloaded back were byte-identical to the ones sent (the
+music file is served as `application/octet-stream` at `https://f.divoom-gz.com/<MusicFileId>`,
+and was still served after the artwork was deleted). The metadata needs nothing extra for
+a clip: the 2026-11-01 test sent the same `json` as a plain still, and the record came back
+with `MusicFileId` set in `Cloud/GalleryInfo` and in `GetMyUploadListV3` within seconds.
+Right after the upload the file host answered the new ids slowly (one read timed out at
+30 s; a retry a minute later was instant).
 
 ### The metadata
 
@@ -376,8 +383,9 @@ passed by review.
 ### The response
 
 `ReturnCode`, `ReturnMessage`, `GalleryId` (the new artwork), `PixelFileId` (the stored
-file, the record's `FileId`), `MusicFileId`, `LayerFileId` (empty when no such part was
-sent) and an empty `PixelFileURL`.
+file, the record's `FileId`), `MusicFileId` (the stored `musicFile`, e.g.
+`group1/M00/1D/79/rBAAM2rn7xmEaIknAAAAANDHjgY9891420`), `LayerFileId` (empty when no such
+part was sent) and an empty `PixelFileURL`.
 
 Return codes the app handles beyond the common ones: `16` duplicate file, `19` uploading
 too often, `22` held for review, `24` the account is barred from uploading. None of them

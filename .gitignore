@@ -18,3 +18,6 @@ reference-animations/
 
 # Private materials (APK, decompiled sources, raw notes): separate private repo, never published.
 private/
+
+# audio research set (2026-11-01), local-only like the rest of the corpus
+corpus/audio/

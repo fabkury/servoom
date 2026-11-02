@@ -113,6 +113,23 @@ layer.save_to_psd("out/example.psd")     # needs pytoshop
 layer.save_to_webp("out/example.webp")   # composited animation
 ```
 
+### Audio clips
+
+An artwork with a `MusicFileId` carries a sound clip: a plain AAC file, either a raw ADTS
+stream (Android uploads: AAC-LC, 44.1 kHz, mono) or an M4A file (iOS uploads). See
+`FILE_FORMATS.md`, "Audio files". The client saves it with the extension that matches
+the container, and `servoom.audio` reads the ADTS header without decoding:
+
+```python
+from servoom.audio import parse_adts
+
+info = c.fetch_artwork_info(4503741)
+path = c.download_music(info, "downloads")        # downloads/4503741_music.aac (or .m4a); None if no clip
+if path.endswith(".aac"):
+    adts = parse_adts(open(path, "rb").read())
+    print(adts.sample_rate, adts.channels, adts.frames, round(adts.duration, 1), "s")
+```
+
 Stand-alone tools and the container spec live in [`layer-tools/`](layer-tools/).
 
 ## Tests
