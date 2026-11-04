@@ -119,7 +119,7 @@ and truncates larger windows.
 | Header | Provides |
 |--------|----------|
 | `pixel_bean.h` | decode artworks to RGB frames; PPM and WebP output |
-| `layer_file.h` | decode layer files (0x27, 0x28) to layer bitmaps and composite frames |
+| `layer_file.h` | decode layer files (0x1D, 0x27, 0x28) to layer bitmaps and composite frames |
 | `client.h` | the cloud client, endpoint table and constants |
 | `digest.h` | SHA-256 and MD5 |
 | `status.h` | status codes |
@@ -139,7 +139,8 @@ libwebp (1.6.0 today); the tests compare pixels and timeline, never bytes.
 
 Artworks: 8, 9, 12 (scrolling banner, decoded as its 64-frame marquee;
 `servoom_pixel_bean_banner_strip()` recovers the 64x16 strip), 17, 18, 26 (flat and
-hierarchical frames), 31, 41, 42, 43. Layer files: 0x27 (raw RGB) and 0x28 (WebP layers).
+hierarchical frames), 31, 41, 42, 43. Layer files: 0x27 (raw RGB), 0x28 (WebP layers) and
+the 2023-2024 container 0x1D (AES head + zlib, tiled bitmaps; inflate is built in).
 What each container holds is documented in [`FILE_FORMATS.md`](../FILE_FORMATS.md).
 
 The port reproduces the Python decoders including their quirks, because the corpus test

@@ -1,9 +1,11 @@
-/* Layer-file decoder (formats 0x27 / 0x28). Python LayerFileDecoder / LayerBean. */
+/* Layer-file decoder (formats 0x1D / 0x27 / 0x28). Python LayerFileDecoder / LayerBean. */
 #include "servoom/layer_file.h"
 
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include "codec/aes_cbc.h"
+#include "codec/inflate.h"
 #include "codec/webp_anim.h"
 #include "codec/zstd_util.h"
 #include "decoders/decoders.h"
@@ -11,10 +13,22 @@
 #include "util/fs.h"
 
 #define DESCRIPTOR_SIZE 6
+#define LEGACY_HEADER_SIZE 13
 
 int servoom_format_is_layer(int fmt)
 {
-    return fmt == SERVOOM_LAYER_FORMAT_RAW_RGB || fmt == SERVOOM_LAYER_FORMAT_WEBP;
+    return fmt == SERVOOM_LAYER_FORMAT_RAW_RGB || fmt == SERVOOM_LAYER_FORMAT_WEBP ||
+           fmt == SERVOOM_LAYER_FORMAT_LEGACY;
+}
+
+static void fill_meta(servoom_layer_meta *m, const uint8_t *desc)
+{
+    memcpy(m->descriptor, desc, DESCRIPTOR_SIZE);
+    m->hidden = desc[0] != 0;
+    m->opacity = desc[1];
+    m->hue = (int)(((unsigned)desc[2] << 8) | desc[3]) - 180;
+    m->saturation = (int)desc[4] - 100;
+    m->lightness = (int)desc[5] - 100;
 }
 
 void servoom_layer_bean_free(servoom_layer_bean *bean)
@@ -84,12 +98,7 @@ static servoom_status parse_layer_table(const uint8_t *table, size_t tlen, servo
             /* Python raises on a short descriptor ('truncated inside a layer descriptor'). */
             if (tlen - pos < DESCRIPTOR_SIZE)
                 return SERVOOM_ERR_CORRUPT;
-            memcpy(fr->layers[i].descriptor, table + pos, DESCRIPTOR_SIZE);
-            fr->layers[i].hidden = table[pos] != 0;
-            fr->layers[i].opacity = table[pos + 1];
-            fr->layers[i].hue = (int)(((unsigned)table[pos + 2] << 8) | table[pos + 3]) - 180;
-            fr->layers[i].saturation = (int)table[pos + 4] - 100;
-            fr->layers[i].lightness = (int)table[pos + 5] - 100;
+            fill_meta(&fr->layers[i], table + pos);
             pos += DESCRIPTOR_SIZE;
         }
         bean->total_layers += num_layers;
@@ -99,7 +108,150 @@ static servoom_status parse_layer_table(const uint8_t *table, size_t tlen, servo
     return SERVOOM_OK;
 }
 
+/* ---- the 0x1D container (2023-2024) ----------------------------------------------
+ *
+ * 0x1D | uint32 E | uint32 Z | uint32 R, then E bytes of AES-128-CBC ciphertext (the
+ * artwork key/IV, no padding) followed by plain bytes; decrypted head + plain tail = Z
+ * bytes of zlib that inflate to R bytes. The payload interleaves table and pixels: per
+ * frame [num_layers][active_layer], then per layer the 6-byte descriptor followed by its
+ * side*side*3 RGB bitmap stored as 16x16 tiles. No size field: the side is the one at
+ * which the payload parses exactly with plausible descriptors. */
+
+/* Walk the payload at `side`. Returns 1 when it is consumed exactly (and fills the
+ * counts and whether every frame header/descriptor looks real), 0 otherwise. */
+static int legacy_scan(const uint8_t *raw, size_t rlen, int side, int *nframes, int *nlayers,
+                       int *plausible)
+{
+    size_t pic = (size_t)side * side * 3, pos = 0;
+    *nframes = *nlayers = 0;
+    *plausible = 1;
+    while (pos < rlen) {
+        if (rlen - pos < 2)
+            return 0;
+        int n = raw[pos], flag = raw[pos + 1];
+        pos += 2;
+        if (n == 0 || flag >= n)
+            *plausible = 0;
+        if ((rlen - pos) / (DESCRIPTOR_SIZE + pic) < (size_t)n)
+            return 0;
+        for (int i = 0; i < n; i++) {
+            const uint8_t *d = raw + pos;
+            if (d[0] > 1 || d[2] > 1 || d[4] > 200 || d[5] > 200) /* hue+180 <= 360 */
+                *plausible = 0;
+            pos += DESCRIPTOR_SIZE + pic;
+        }
+        (*nframes)++;
+        *nlayers += n;
+    }
+    return pos == rlen && *nframes > 0;
+}
+
+/* 16x16 tiles (row-major tiles, row-major pixels inside) -> row-major bitmap. */
+static void untile(const uint8_t *src, uint8_t *dst, int side)
+{
+    int t = side / 16;
+    for (int tr = 0; tr < t; tr++)
+        for (int tc = 0; tc < t; tc++)
+            for (int r = 0; r < 16; r++)
+                memcpy(dst + (((size_t)(tr * 16 + r) * side) + (size_t)tc * 16) * 3,
+                       src + (((size_t)(tr * t + tc) * 16) + r) * 48, 48);
+}
+
+static servoom_status legacy_fill(const uint8_t *raw, size_t rlen, int side, int nframes, int nlayers,
+                                  servoom_layer_bean *bean)
+{
+    size_t pic = (size_t)side * side * 3, pos = 0;
+    bean->frames = (servoom_layer_frame *)calloc((size_t)nframes, sizeof(*bean->frames));
+    bean->bitmaps = (uint8_t *)malloc(nlayers ? pic * (size_t)nlayers : 1);
+    if (!bean->frames || !bean->bitmaps)
+        return SERVOOM_ERR_NOMEM;
+    bean->num_frames = nframes;
+    bean->total_layers = nlayers;
+    bean->width = bean->height = side;
+    int li = 0;
+    for (int f = 0; f < nframes; f++) {
+        servoom_layer_frame *fr = &bean->frames[f];
+        fr->num_layers = raw[pos];
+        fr->flag = raw[pos + 1];
+        fr->first_layer = li;
+        pos += 2;
+        fr->layers = (servoom_layer_meta *)calloc(fr->num_layers ? (size_t)fr->num_layers : 1, sizeof(*fr->layers));
+        if (!fr->layers)
+            return SERVOOM_ERR_NOMEM;
+        for (int i = 0; i < fr->num_layers; i++, li++) {
+            fill_meta(&fr->layers[i], raw + pos);
+            pos += DESCRIPTOR_SIZE;
+            untile(raw + pos, bean->bitmaps + pic * (size_t)li, side);
+            pos += pic;
+        }
+    }
+    (void)rlen;
+    return SERVOOM_OK;
+}
+
+static servoom_status decode_legacy(const uint8_t *data, size_t len, int side_hint, servoom_layer_bean *bean)
+{
+    static const int sides[] = {16, 32, 64, 128, 256};
+    if (len < LEGACY_HEADER_SIZE)
+        return SERVOOM_ERR_CORRUPT;
+    uint32_t enc_len = sv_be32(data + 1), z_len = sv_be32(data + 5), raw_len = sv_be32(data + 9);
+    size_t blen = len - LEGACY_HEADER_SIZE;
+    if (enc_len % 16 || enc_len > blen || z_len > blen)
+        return SERVOOM_ERR_CORRUPT;
+    uint8_t *stream = (uint8_t *)malloc(blen ? blen : 1);
+    if (!stream)
+        return SERVOOM_ERR_NOMEM;
+    memcpy(stream, data + LEGACY_HEADER_SIZE, blen);
+    servoom_status st = sv_aes_divoom_decrypt(stream, enc_len);
+    uint8_t *raw = NULL;
+    size_t rlen = 0;
+    if (st == SERVOOM_OK)
+        st = sv_zlib_inflate(stream, z_len, raw_len, 0, &raw, &rlen);
+    free(stream);
+    if (st != SERVOOM_OK)
+        return st == SERVOOM_ERR_NOMEM ? st : SERVOOM_ERR_CORRUPT;
+    if (rlen != raw_len) {
+        free(raw);
+        return SERVOOM_ERR_CORRUPT; /* 'payload size mismatch' */
+    }
+    /* The hint first, then every square canvas: the first plausible parse wins; a parse
+     * that only consumes the payload (garbage descriptors) is the fallback. */
+    int chosen = 0, fb_side = 0, fb_frames = 0, fb_layers = 0, nframes, nlayers, plausible;
+    for (int i = -1; i < (int)(sizeof sides / sizeof *sides) && !chosen; i++) {
+        int side = i < 0 ? side_hint : sides[i];
+        if (side <= 0 || side % 16 || (i >= 0 && side == side_hint))
+            continue;
+        if (!legacy_scan(raw, rlen, side, &nframes, &nlayers, &plausible))
+            continue;
+        if (plausible)
+            chosen = side;
+        else if (!fb_side) {
+            fb_side = side;
+            fb_frames = nframes;
+            fb_layers = nlayers;
+        }
+    }
+    if (!chosen && fb_side) {
+        chosen = fb_side;
+        nframes = fb_frames;
+        nlayers = fb_layers;
+    }
+    if (!chosen) {
+        free(raw);
+        return SERVOOM_ERR_CORRUPT; /* 'does not parse at any Divoom canvas size' */
+    }
+    st = legacy_fill(raw, rlen, chosen, nframes, nlayers, bean);
+    free(raw);
+    return st;
+}
+
 servoom_status servoom_layer_decode_memory(const uint8_t *data, size_t len, servoom_layer_bean **out)
+{
+    return servoom_layer_decode_memory_hint(data, len, 0, out);
+}
+
+servoom_status servoom_layer_decode_memory_hint(const uint8_t *data, size_t len, int side_hint,
+                                                servoom_layer_bean **out)
 {
     if (!out)
         return SERVOOM_ERR_ARG;
@@ -110,6 +262,16 @@ servoom_status servoom_layer_decode_memory(const uint8_t *data, size_t len, serv
     if (!bean)
         return SERVOOM_ERR_NOMEM;
     bean->format = data[0];
+
+    if (bean->format == SERVOOM_LAYER_FORMAT_LEGACY) {
+        servoom_status lst = decode_legacy(data, len, side_hint, bean);
+        if (lst != SERVOOM_OK) {
+            servoom_layer_bean_free(bean);
+            return lst;
+        }
+        *out = bean;
+        return SERVOOM_OK;
+    }
 
     uint8_t *table = NULL;
     size_t tlen = 0, pos = 0;

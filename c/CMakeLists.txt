@@ -33,6 +33,7 @@ set(SERVOOM_SOURCES
   src/util/fs.c
   src/codec/lzo1x.c
   src/codec/aes_cbc.c
+  src/codec/inflate.c
   src/codec/zstd_util.c
   src/codec/jpeg_decode.c
   src/codec/gif_decode.c

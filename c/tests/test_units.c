@@ -240,6 +240,38 @@ static void test_layers(void)
         servoom_layer_bean_free(layer);
     }
     uint8_t bad[5] = {0x1A, 0, 0, 0, 0};
+    /* 0x1D: AES head + zlib, descriptors interleaved with 16x16-tiled bitmaps, no size
+     * field (32x32 here, so un-tiling and size detection are both exercised). */
+    st = servoom_layer_decode_memory(LAYER1D_FILE, LAYER1D_FILE_LEN, &layer);
+    if (CHECK(st == SERVOOM_OK, "layer 0x1D decode: %s", servoom_status_str(st))) {
+        char c[65], l[65], t[65];
+        tl_layer_hashes(layer, c, l, t);
+        CHECK(layer->format == SERVOOM_LAYER_FORMAT_LEGACY, "layer 0x1D format byte");
+        CHECK(layer->width == LAYER1D_SIDE && layer->height == LAYER1D_SIDE, "layer 0x1D side detected");
+        CHECK(layer->num_frames == LAYER1D_FRAMES && layer->total_layers == LAYER1D_TOTAL_LAYERS,
+              "layer 0x1D structure");
+        CHECK(strcmp(c, LAYER1D_HASH) == 0, "layer 0x1D composite hash");
+        CHECK(strcmp(l, LAYER1D_LAYERS_HASH) == 0, "layer 0x1D bitmap hash (un-tiled)");
+        CHECK(layer->frames[0].layers[1].hidden == 1 && layer->frames[0].layers[1].opacity == 128,
+              "layer 0x1D descriptor fields");
+        CHECK(layer->frames[1].layers[1].hue == -30 && layer->frames[1].layers[1].saturation == 10 &&
+              layer->frames[1].layers[1].lightness == -5, "layer 0x1D HSL sliders");
+        servoom_layer_bean_free(layer);
+    }
+    /* a wrong hint that does not parse is ignored; the right one is honoured */
+    if (servoom_layer_decode_memory_hint(LAYER1D_FILE, LAYER1D_FILE_LEN, 16, &layer) == SERVOOM_OK) {
+        CHECK(layer->width == LAYER1D_SIDE, "layer 0x1D wrong size hint ignored");
+        servoom_layer_bean_free(layer);
+    }
+    if (servoom_layer_decode_memory_hint(LAYER1D_FILE, LAYER1D_FILE_LEN, LAYER1D_SIDE, &layer) == SERVOOM_OK) {
+        CHECK(layer->width == LAYER1D_SIDE, "layer 0x1D size hint honoured");
+        servoom_layer_bean_free(layer);
+    }
+    for (size_t n = 0; n < LAYER1D_FILE_LEN; n += 7) {
+        servoom_layer_bean *b = NULL;
+        CHECK(servoom_layer_decode_memory(LAYER1D_FILE, n, &b) != SERVOOM_OK || b != NULL, "truncated 0x1D");
+        servoom_layer_bean_free(b);
+    }
     CHECK(servoom_layer_decode_memory(bad, 5, &layer) == SERVOOM_ERR_FORMAT, "not a layer file");
     for (size_t n = 1; n < 40 && n < LAYER28_FILE_LEN; n++) {
         servoom_layer_bean *b = NULL;

@@ -1,4 +1,4 @@
-/* Decoded Divoom layer file (container formats 0x27 and 0x28).
+/* Decoded Divoom layer file (container formats 0x1D, 0x27 and 0x28).
  *
  * The layer file (LayerFileId in gallery metadata) is the editable, layered source of an
  * artwork. See python/layer-tools/LAYER_FILE_FORMAT.md for the format write-up. This is a
@@ -18,6 +18,7 @@ extern "C" {
 
 #define SERVOOM_LAYER_FORMAT_RAW_RGB 0x27 /* pixels: zstd stream(s) of raw RGB bitmaps */
 #define SERVOOM_LAYER_FORMAT_WEBP    0x28 /* pixels: one lossless WebP record per layer */
+#define SERVOOM_LAYER_FORMAT_LEGACY  0x1D /* 2023-2024: AES head + zlib, tiled bitmaps */
 
 typedef struct servoom_layer_meta {
     uint8_t hidden;        /* descriptor byte[0] != 0: excluded from the composite */
@@ -36,7 +37,7 @@ typedef struct servoom_layer_frame {
 } servoom_layer_frame;
 
 typedef struct servoom_layer_bean {
-    int format;        /* 0x27 or 0x28 */
+    int format;        /* 0x1D, 0x27 or 0x28 */
     int width, height; /* square canvas */
     int num_frames;
     int total_layers;  /* sum of num_layers over all frames */
@@ -47,6 +48,11 @@ typedef struct servoom_layer_bean {
 servoom_status servoom_layer_decode_file(const char *path, servoom_layer_bean **out);
 servoom_status servoom_layer_decode_memory(const uint8_t *data, size_t len,
                                            servoom_layer_bean **out);
+/* Same, with a canvas-side hint for the 0x1D container, which carries no size: the hint
+ * is tried first when it parses, else every Divoom size is tried (0 = no hint). The
+ * current containers know their size and ignore it. */
+servoom_status servoom_layer_decode_memory_hint(const uint8_t *data, size_t len, int side_hint,
+                                                servoom_layer_bean **out);
 void servoom_layer_bean_free(servoom_layer_bean *bean);
 
 /* Raw bitmap of layer `layer` of frame `frame` (width*height*3 bytes); NULL if out of range. */
