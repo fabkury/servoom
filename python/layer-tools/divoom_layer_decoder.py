@@ -1,5 +1,5 @@
 """
-Divoom LAYER file decoder  (file format 0x27 / 39)  -- reverse-engineered.
+Divoom LAYER file decoder  (file formats 0x1D / 29, 0x27 / 39, 0x28 / 40)  -- reverse-engineered.
 
 A Divoom "layer file" (LayerFileId) is the editable, layered source for an artwork.
 This decoder is fully self-contained: it needs ONLY the layer .dat file. It parses the
@@ -9,7 +9,7 @@ and per-layer opacity, and can composite the layers back into the animation.
 ------------------------------------------------------------------------------------
 CONTAINER LAYOUT  (all multi-byte integers are big-endian)
 ------------------------------------------------------------------------------------
-  offset 0 : uint8   format id = 0x27 (39)  or  0x28 (40)
+  offset 0 : uint8   format id = 0x27 (39)  or  0x28 (40)   [0x1D (29): see below]
   STREAM 0 ("layer table"), both formats: a length-prefixed zstd stream
         uint32 C   = compressed size of the stream
         uint32 U   = uncompressed size of the stream
@@ -43,6 +43,16 @@ COMPOSITING (matches the Divoom editor):
   This reproduces the decoded artwork frames to within the artwork decoder's own
   quantization (~+-4) on the validation sample; single-layer frames match exactly.
 
+0x1D (the 2023-2024 container, files dated 2023-01 .. 2024-12):
+    uint32 E | uint32 Z | uint32 R   then E bytes of AES-128-CBC ciphertext (key
+    78hrey23y28ogs89, IV 1234567890123456, no padding) followed by plain bytes; decrypted
+    head + plain tail = Z bytes of zlib that inflate to R bytes. The payload interleaves
+    table and pixels: per frame [num_layers][active], then per layer the 6-byte
+    descriptor FOLLOWED BY its side*side*3 RGB bitmap stored as 16x16 tiles (row-major
+    tiles, row-major pixels inside a tile). There is no size field: the side is the one
+    at which the payload parses exactly with sane descriptors (16, 32, 64, 128, 256).
+    Needs pycryptodome (import Crypto). See LAYER_FILE_FORMAT.md section 1b.
+
 Unknowns still open: exact meaning of descriptor bytes [0],[2],[3:6]; the record flag
 byte; whether frame duration is stored (it is 0 in the header here -- speed lives in the
 artwork file, not the layer file).
@@ -57,16 +67,21 @@ import io
 import math
 import os
 import sys
+import zlib
 from struct import unpack
 
 import numpy as np
 import zstandard as zstd
 from PIL import Image
 
+FORMAT_LEGACY = 0x1D    # AES-CBC head + zlib; descriptors interleaved with tiled bitmaps
 FORMAT_RAW_RGB = 0x27   # pixels = one zstd stream of raw 24-bit RGB bitmaps
 FORMAT_WEBP = 0x28      # pixels = per-layer [uint8 flag][uint32 BE length][lossless WEBP]
-SUPPORTED_FORMATS = (FORMAT_RAW_RGB, FORMAT_WEBP)
+SUPPORTED_FORMATS = (FORMAT_LEGACY, FORMAT_RAW_RGB, FORMAT_WEBP)
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+LEGACY_AES_KEY = b"78hrey23y28ogs89"
+LEGACY_AES_IV = b"1234567890123456"
+LEGACY_SIDES = (16, 32, 64, 128, 256)
 
 
 # --------------------------------------------------------------------------- #
@@ -104,14 +119,77 @@ def _parse_layer_table(stream0: bytes):
     return frames
 
 
+def _legacy_payload(data: bytes) -> bytes:
+    """0x1D: AES-decrypt the first E bytes, inflate Z bytes of zlib to R bytes."""
+    from Crypto.Cipher import AES  # pycryptodome; only the 0x1D path needs it
+
+    enc_len, z_len, raw_len = unpack(">III", data[1:13])
+    body = data[13:]
+    if enc_len % 16 or enc_len > len(body):
+        raise ValueError(f"0x1D: bad encrypted-head length {enc_len}")
+    stream = AES.new(LEGACY_AES_KEY, AES.MODE_CBC, LEGACY_AES_IV).decrypt(body[:enc_len]) + body[enc_len:]
+    raw = zlib.decompress(stream[:z_len])
+    if len(raw) != raw_len:
+        raise ValueError(f"0x1D: payload size mismatch (header {raw_len}, got {len(raw)})")
+    return raw
+
+
+def _parse_legacy(raw: bytes, side: int):
+    """Parse the interleaved 0x1D payload at `side`; None unless consumed exactly with
+    sane descriptors (that is how the canvas size is recovered)."""
+    pic, tiles, pos = side * side * 3, side // 16, 0
+    frames, bitmaps = [], []
+    while pos < len(raw):
+        if pos + 2 > len(raw):
+            return None
+        n, flag = raw[pos], raw[pos + 1]
+        pos += 2
+        if n == 0 or flag >= n or pos + n * (6 + pic) > len(raw):
+            return None
+        layers = []
+        for _ in range(n):
+            d = raw[pos: pos + 6]
+            pos += 6
+            if d[0] > 1 or d[2] > 1 or d[4] > 200 or d[5] > 200:
+                return None
+            layers.append({"hidden": d[0] != 0, "opacity": d[1], "descriptor": d.hex()})
+            px = np.frombuffer(raw, np.uint8, pic, pos)
+            pos += pic
+            # 16x16 tiles, row-major -> row-major pixels
+            bitmaps.append(px.reshape(tiles, tiles, 16, 16, 3).transpose(0, 2, 1, 3, 4).reshape(side, side, 3))
+        frames.append({"num_layers": n, "flag": flag, "layers": layers})
+    if pos != len(raw) or not frames:
+        return None
+    return frames, np.stack(bitmaps)
+
+
 class DivoomLayerFile:
     def __init__(self, data: bytes):
         if not data or data[0] not in SUPPORTED_FORMATS:
             got = f"0x{data[0]:02x}" if data else None
-            raise ValueError(f"not a 0x27/0x28 layer file (first byte = {got})")
+            raise ValueError(f"not a 0x1D/0x27/0x28 layer file (first byte = {got})")
         self.format = data[0]
 
-        # Stream 0 (layer table) is a zstd stream in both formats.
+        if self.format == FORMAT_LEGACY:
+            raw = _legacy_payload(data)
+            for side in LEGACY_SIDES:
+                parsed = _parse_legacy(raw, side)
+                if parsed is not None:
+                    break
+            else:
+                raise ValueError("0x1D: payload does not parse at any Divoom canvas size")
+            self.stream0 = b""
+            self.frames_meta, self.bitmaps = parsed
+            self.total_layers = len(self.bitmaps)
+            self.width = self.height = side
+            self.frames = []
+            idx = 0
+            for fm in self.frames_meta:
+                self.frames.append(self.bitmaps[idx: idx + fm["num_layers"]])
+                idx += fm["num_layers"]
+            return
+
+        # Stream 0 (layer table) is a zstd stream in both current formats.
         self.stream0, pos = _read_zstd_stream(data, 1)
         self.frames_meta = _parse_layer_table(self.stream0)
         self.total_layers = sum(f["num_layers"] for f in self.frames_meta)
@@ -169,7 +247,8 @@ class DivoomLayerFile:
         return np.clip(np.round(canvas), 0, 255).astype(np.uint8)
 
     def report(self) -> str:
-        pixel_kind = "raw RGB (zstd)" if self.format == FORMAT_RAW_RGB else "lossless WEBP"
+        pixel_kind = {FORMAT_RAW_RGB: "raw RGB (zstd)", FORMAT_WEBP: "lossless WEBP",
+                      FORMAT_LEGACY: "raw RGB, 16x16 tiles (AES head + zlib)"}[self.format]
         lines = [
             f"format            : 0x{self.format:02x} ({self.format})  Divoom layer file",
             f"canvas            : {self.width}x{self.height}",
@@ -215,7 +294,7 @@ def decode_one(layer_path: str, out_dir: str, dump_layers: bool, duration: int):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Decode Divoom 0x27 layer files.")
+    ap = argparse.ArgumentParser(description="Decode Divoom layer files (0x1D, 0x27, 0x28).")
     ap.add_argument("path", help="layer.dat file, or a pairs dir when --batch is set")
     ap.add_argument("--out", default="layer_decoded", help="output directory")
     ap.add_argument("--layers", action="store_true", help="also dump per-layer PNGs")

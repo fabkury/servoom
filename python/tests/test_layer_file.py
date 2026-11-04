@@ -1,10 +1,12 @@
-"""Tests for the Divoom layer-file decoder (container formats 0x27 and 0x28).
+"""Tests for the Divoom layer-file decoder (container formats 0x1D, 0x27 and 0x28).
 
 The reference assets don't include a layer file, so these build tiny synthetic ones for
-both container versions:
+all three container versions:
 
 * **0x27** — pixels are one zstd stream of raw 24-bit RGB bitmaps.
 * **0x28** — pixels are per-layer lossless-WEBP records (the newer container version).
+* **0x1D** — the 2023-2024 container: AES-CBC head, zlib, descriptors interleaved with
+  16x16-tiled bitmaps and no size field.
 """
 
 from __future__ import annotations
@@ -177,8 +179,115 @@ def test_save_to_psd_keeps_empty_layers(tmp_path):
 
 
 def test_rejects_non_layer_file():
-    with pytest.raises(ValueError, match=r"0x27/0x28"):
+    with pytest.raises(ValueError, match=r"0x1D/0x27/0x28"):
         LayerFileDecoder.decode_bytes(bytes([0x1A, 0, 0, 0, 0]))
+
+
+# --- the 0x1D container (2023-2024) -------------------------------------------------
+
+def _tiled(layer: np.ndarray) -> bytes:
+    """Row-major bitmap -> the device's 16x16-tile order the 0x1D payload uses."""
+    side = layer.shape[0]
+    t = side // 16
+    return layer.reshape(t, 16, t, 16, 3).transpose(0, 2, 1, 3, 4).tobytes()
+
+
+def _build_0x1d(frames, layers, enc_len=96) -> bytes:
+    """frames as in _layer_table; layers: one (side, side, 3) array per descriptor.
+
+    Payload = per frame [num_layers][active] then, per layer, descriptor + tiled bitmap;
+    zlib-compressed; the first ``enc_len`` bytes AES-128-CBC encrypted (zero-padded to a
+    block, as the app does) and the rest left plain.
+    """
+    import zlib
+    from Crypto.Cipher import AES
+
+    table = _layer_table(frames)  # same descriptor bytes, just interleaved below
+    payload = bytearray()
+    tpos = 0
+    li = 0
+    for spec in frames:
+        payload += table[tpos:tpos + 2]
+        tpos += 2
+        for _ in spec:
+            payload += table[tpos:tpos + 6]
+            tpos += 6
+            payload += _tiled(layers[li])
+            li += 1
+    z = zlib.compress(bytes(payload))
+    stream = z + bytes(-len(z) % 16) if len(z) < enc_len else z
+    enc_len = min(enc_len, len(stream))
+    cipher = AES.new(b"78hrey23y28ogs89", AES.MODE_CBC, b"1234567890123456")
+    body = cipher.encrypt(stream[:enc_len]) + stream[enc_len:]
+    return bytes([0x1D]) + struct.pack(">III", enc_len, len(z), len(payload)) + body
+
+
+def test_0x1d_decodes_like_the_other_containers():
+    l0, l1 = _sample_layers()
+    frames = [[(False, 255)], [(False, 128)]]
+    layer = LayerFileDecoder.decode_bytes(_build_0x1d(frames, [l0, l1]))
+    assert layer.format == 0x1D and (layer.width, layer.height) == (SIDE, SIDE)
+    assert layer.num_frames == 2 and layer.total_layers == 2
+    assert np.array_equal(layer.frame_layers(0)[0], l0)
+    assert np.array_equal(layer.frame_layers(1)[0], l1)
+    assert np.array_equal(layer.composite_frame(0), l0)
+    assert layer.composite_frame(1)[9, 9].tolist() == [
+        round(10 * 128 / 255), round(200 * 128 / 255), round(10 * 128 / 255)]
+    # a longer encrypted head than the zlib stream is fine (the app zero-pads the block)
+    short = LayerFileDecoder.decode_bytes(_build_0x1d(frames, [l0, l1], enc_len=1024))
+    assert np.array_equal(short.frame_layers(1)[0], l1)
+
+
+def test_0x1d_untiles_and_detects_the_canvas_size():
+    big = np.zeros((32, 32, 3), np.uint8)
+    big[0:16, 16:32] = (1, 2, 3)      # top-right tile
+    big[20, 5] = (40, 50, 60)          # a pixel inside the bottom-left tile
+    frames = [[(False, 255), (True, 10, 12, -3, 4)]]
+    data = _build_0x1d(frames, [big, big])
+    layer = LayerFileDecoder.decode_bytes(data)              # no size hint: detected
+    assert (layer.width, layer.height) == (32, 32)
+    assert np.array_equal(layer.frame_layers(0)[0], big)
+    m1 = layer.frames_meta[0]["layers"][1]
+    assert (m1["hidden"], m1["opacity"], m1["hue"], m1["saturation"], m1["lightness"]) == (True, 10, 12, -3, 4)
+    # a wrong hint is ignored when the payload does not parse at it
+    assert LayerFileDecoder.decode_bytes(data, side=16).width == 32
+    assert LayerFileDecoder.decode_bytes(data, side=32).width == 32
+
+
+def test_0x1d_rejects_damage():
+    l0, _ = _sample_layers()
+    data = _build_0x1d([[(False, 255)]], [l0])
+    with pytest.raises(ValueError):
+        LayerFileDecoder.decode_bytes(data[:40])                # truncated
+    with pytest.raises(ValueError):
+        LayerFileDecoder.decode_bytes(data[:13] + bytes(len(data) - 13))  # garbage body
+
+
+def test_adjust_hsl_float_is_the_unquantised_pipeline():
+    from servoom.layer_file_decoder import adjust_hsl, adjust_hsl_float
+
+    red = np.array([[[255, 0, 0]]], np.uint8)
+    assert adjust_hsl_float(red, 120, 0, 0).tolist() == [[[0, 255, 0]]]
+    assert adjust_hsl_float(red, 0, -100, 0).tolist() == [[[127, 127, 127]]]
+    assert adjust_hsl_float(red, 0, 0, -100).tolist() == [[[0, 0, 0]]]
+    # Measured on a 2023-06-20 artwork: gray 122 with lightness -20 renders 97 in the
+    # float pipeline (122/255 * 0.8 -> 97.6) but 94 in the quantised one (47% -> 37%).
+    gray = np.array([[[122, 122, 122]]], np.uint8)
+    assert adjust_hsl_float(gray, 62, 0, -20).tolist() == [[[97, 97, 97]]]
+    assert adjust_hsl(gray, 62, 0, -20).tolist() == [[[94, 94, 94]]]
+
+
+def test_composite_hsl_mode():
+    gray = np.zeros((SIDE, SIDE, 3), np.uint8); gray[1, 1] = (122, 122, 122)
+    frames = [[(False, 255, 62, 0, -20)]]
+    layer = LayerFileDecoder.decode_bytes(_build_0x1d(frames, [gray]))
+    assert layer.hsl_mode == "integer"
+    assert layer.composite_frame(0)[1, 1].tolist() == [94, 94, 94]
+    assert layer.composite_frame(0, hsl_mode="float")[1, 1].tolist() == [97, 97, 97]
+    layer.hsl_mode = "float"
+    assert layer.composite_frame(0)[1, 1].tolist() == [97, 97, 97]
+    with pytest.raises(ValueError):
+        layer.composite_frame(0, hsl_mode="double")
 
 
 def _read_psd_groups(fh):

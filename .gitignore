@@ -28,3 +28,4 @@ requests/04-thepixelxb/*
 !requests/04-thepixelxb/fetch.py
 !requests/04-thepixelxb/collect.py
 !requests/04-thepixelxb/build.py
+!requests/04-thepixelxb/validate_0x1d.py
