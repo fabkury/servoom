@@ -17,5 +17,9 @@ Only the scripts are tracked. The data (`package/`, logs, the zip) is another us
 and stays local.
 
 Findings worth keeping: 261 layer files and 9 sound clips from 2021–2023 are gone from the
-file host; 305 layer files use an older container (first byte `0x1D`) that servoom does not
-decode yet; like counters include deleted accounts, and like lists stop at 3,000 entries.
+file host; 305 layer files use an older container (first byte `0x1D`), reverse-engineered
+from this archive on 2026-11-04 and now decoded by servoom (`validate_0x1d.py` compares
+every one with its flattened artwork: 263 of 305 byte-exact, the rest are artworks
+re-rendered later, a lossy artwork, three size mismatches and float-rounding residue of the
+2023–2024 app's HSL sliders — see `python/layer-tools/LAYER_FILE_FORMAT.md` §1b/§5b);
+like counters include deleted accounts, and like lists stop at 3,000 entries.

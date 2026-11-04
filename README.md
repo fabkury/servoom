@@ -87,7 +87,7 @@ Reference documents, all reverse-engineered and verified live:
 | [`CLOUD_API.md`](CLOUD_API.md) | gallery, user, tag, discovery and playlist endpoints: fields, filters, page caps, which calls need a token |
 | [`FORUM_API.md`](FORUM_API.md) | the forum feed, comments, notification inbox and chat-room directory |
 | [`FILE_FORMATS.md`](FILE_FORMATS.md) | which container holds stills or animations, with the evidence per format; layer files; the audio clip an artwork can carry (plain AAC, ADTS or M4A) |
-| [`python/layer-tools/LAYER_FILE_FORMAT.md`](python/layer-tools/LAYER_FILE_FORMAT.md) | the layer-file container (format 0x27) |
+| [`python/layer-tools/LAYER_FILE_FORMAT.md`](python/layer-tools/LAYER_FILE_FORMAT.md) | the layer-file containers (formats 0x27, 0x28 and the 2023–2024 0x1D) |
 
 ## Other ways in
 

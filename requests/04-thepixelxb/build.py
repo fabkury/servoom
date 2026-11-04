@@ -75,10 +75,7 @@ def decode_folder(d, meta, errors):
             row.update(width=im.width, height=im.height, frames=getattr(im, "n_frames", 1))
     if "layer" in meta["files"]:
         psd = d / f"{gid}_layer.psd"
-        lfile = d / meta["files"]["layer"]
-        if lfile.read_bytes()[:1] == b"":
-            errors.append((d.name, "older layer-file container (0x1D), not decoded yet; raw file kept / 旧版图层文件格式（0x1D），暂无法解码，原始文件已保留"))
-        elif not psd.exists():
+        if not psd.exists():
             try:
                 layer = LayerFileDecoder.decode_file(str(d / meta["files"]["layer"]))
                 layer.save_to_psd(str(psd))
@@ -200,10 +197,16 @@ artworks/
 * 较早作品的点赞列表少于点赞数：计数器仍包含已注销账号的赞，列表只返回现存账号。
   服务器最多列出 3,000 条点赞（涉及三件作品）。
 * Planet-lamp artworks (28 LEDs) and LED-text artworks are kept as raw `.dat` only: they are
-  not pixel images. 294 layer files use an older container (first byte 0x1D) that servoom
-  cannot decode yet; the raw files are included so they can be converted later.
+  not pixel images.
 * Planet 灯作品（28 颗 LED）和 LED 文字作品只保留原始 `.dat`，它们不是像素图像。
-  294 个图层文件使用旧版格式（首字节 0x1D），servoom 暂时无法解码，原始文件已包含，以后可转换。
+* Layer files from 2023–2024 use an older container (first byte 0x1D). servoom decodes it
+  since 2026-11-04, so those artworks have a PSD too. The app that flattened them between
+  June 2023 and December 2024 applied the Hue/Saturation/Lightness sliders slightly
+  differently from today's app, so a PSD re-exported from the editor can differ by a few
+  colour steps on layers that use those sliders.
+* 2023–2024 年的图层文件使用旧版格式（首字节 0x1D），servoom 自 2026-11-04 起可以解码，
+  这些作品也有 PSD。2023 年 6 月至 2024 年 12 月期间 App 对色相/饱和度/亮度滑块的处理
+  与现版略有不同，使用了这些滑块的图层在编辑器中重新导出时颜色可能相差几个色阶。
 * The Divoom server no longer has the layer file of __NMISSING__ artworks uploaded between 2021 and
   2023 (it answers "not found"); those folders hold the artwork file but no layer file or PSD.
   The list is at the end of this file.
