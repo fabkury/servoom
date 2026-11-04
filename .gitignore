@@ -21,3 +21,10 @@ private/
 
 # audio research set (2026-11-01), local-only like the rest of the corpus
 corpus/audio/
+
+# Request 04 (2026-11-04): another user's artworks and layer files; only the script is tracked.
+requests/04-thepixelxb/*
+!requests/04-thepixelxb/request.md
+!requests/04-thepixelxb/fetch.py
+!requests/04-thepixelxb/collect.py
+!requests/04-thepixelxb/build.py
